@@ -1,6 +1,6 @@
 # Orbital
 <div align="center">
-  <img src="orbital_logo.jpeg" alt="Orbital Logo" width="800" />
+  <img src="orbital_logo.jpeg" alt="Orbital Logo" width="400" height="400"/>
 </div>
 
 > Orbital is a microservices-based platform that aggregates real-time cryptocurrency market data and financial news.
@@ -22,6 +22,20 @@ ___
 - **Docker** - Containerized deployment
 - **Monitoring** - Prometheus & Grafana integration
 
+
+## 📁 Project Structure
+
+orbital/ <br>
+├── gateway/                 <br>
+├── market-service/          <br>
+├── news-service/            <br>
+├── libs/                    <br>
+│   ├── core/                <br>
+│   └── models/              <br>
+├── docker-compose.yml       <br>
+└── monitoring/              <br>
+
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -36,14 +50,4 @@ graph TB
     Market --> PostgresM[(PostgreSQL)]
     News --> PostgresN[(PostgreSQL)]
 ```
-## 📁 Project Structure
 
-orbital/ <br>
-├── gateway/                 <br>
-├── market-service/          <br>
-├── news-service/            <br>
-├── libs/                    <br>
-│   ├── core/                <br>
-│   └── models/              <br>
-├── docker-compose.yml       <br>
-└── monitoring/              <br>
