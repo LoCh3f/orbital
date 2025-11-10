@@ -1,4 +1,4 @@
-# Orbital
+# Orbital News & Market
 <div align="center">
   <img src="orbital_logo.jpeg" alt="Orbital Logo" width="400" height="400"/>
 </div>
