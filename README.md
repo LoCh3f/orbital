@@ -44,10 +44,10 @@ graph TB
     Gateway --> Market[Market Service]
     Gateway --> News[News Service]
     Market --> CoinGecko[CoinGecko API]
-    News --> NewsAPI[News API]
+    Market --> PostgresM[(PostgreSQL)]
     Market --> Redis[(Redis)]
     News --> Redis
-    Market --> PostgresM[(PostgreSQL)]
     News --> PostgresN[(PostgreSQL)]
+    News --> NewsAPI[News API]
 ```
 
