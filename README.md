@@ -25,15 +25,23 @@ ___
 
 ## 📁 Project Structure
 
-orbital/ <br>
-├── gateway/                 <br>
-├── market-service/          <br>
-├── news-service/            <br>
-├── libs/                    <br>
-│   ├── core/                <br>
-│   └── models/              <br>
-├── docker-compose.yml       <br>
-└── monitoring/              <br>
+orbital/                       <br>
+├── gateway/                   <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;├── build.gradle.kts    <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;└── Dockerfile          <br>
+├── market-service/            <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;├── build.gradle.kts    <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;└── Dockerfile          <br>
+├── news-service/              <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;├── build.gradle.kts    <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;└── Dockerfile          <br>
+├── libs/                      <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;├── core/               <br>
+│  &nbsp; &nbsp; &nbsp;&nbsp;└── models/             <br>
+├── docker-compose.yml         <br>
+├──   monitoring/              <br>
+├── settings.gradle.kts        <br>
+└── build.gradle.kts           <br>
 
 
 ## 🏗️ Architecture
