@@ -1,0 +1,61 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### Kotlin ###
+.kotlin/
+
+### Mac OS ###
+.DS_Store
+
+### Maven ###
+target/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Logs ###
+logs/
+*.log
+
+### Environment ###
+.env
+.env.local
+*.env
+
+### Secrets ###
+*.key
+*.p12
+*.jks
+
+### Docker ###
+docker-compose.override.yml
+
+### Temporary files ###
+*.tmp
+*.temp
