@@ -1,0 +1,208 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  gateway:
+    build:
+      context: ./
+      dockerfile: ./gateway/Dockerfile
+    container_name: orbital-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - JAVA_OPTS=-Xmx512m
+      - MARKET_SERVICE_URL=http://market-service:8081
+      - NEWS_SERVICE_URL=http://news-service:8082
+    depends_on:
+      postgres-market:
+        condition: service_healthy
+      postgres-news:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orbital-net
+
+  # Market Data Service
+  market-service:
+    build: ./market-service
+    container_name: orbital-market
+    ports:
+      - "8081:8080"
+    environment:
+      - JAVA_OPTS=-Xmx512m
+      - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
+      - DB_USER=market_user
+      - DB_PASSWORD=market_pass
+      - REDIS_URL=redis://redis:6379
+      - MARKET_API_KEY=${MARKET_API_KEY}
+    depends_on:
+      postgres-market:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orbital-net
+
+  # News Service
+  news-service:
+    build: ./news-service
+    container_name: orbital-news
+    ports:
+      - "8082:8080"
+    environment:
+      - JAVA_OPTS=-Xmx512m
+      - DB_URL=jdbc:postgresql://postgres-news:5432/news_data
+      - DB_USER=news_user
+      - DB_PASSWORD=news_pass
+      - REDIS_URL=redis://redis:6379
+      - NEWS_API_KEY=${NEWS_API_KEY}
+    depends_on:
+      postgres-news:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orbital-net
+
+  # Database Market Data
+  postgres-market:
+    image: postgres:15
+    container_name: postgres-market
+    environment:
+      POSTGRES_DB: market_data
+      POSTGRES_USER: market_user
+      POSTGRES_PASSWORD: market_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_market_data:/var/lib/postgresql/data
+      - ./database/market/init:/docker-entrypoint-initdb.d
+    networks:
+      - orbital-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market_user -d market_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Database News
+  postgres-news:
+    image: postgres:15
+    container_name: postgres-news
+    environment:
+      POSTGRES_DB: news_data
+      POSTGRES_USER: news_user
+      POSTGRES_PASSWORD: news_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_news_data:/var/lib/postgresql/data
+      - ./database/news/init:/docker-entrypoint-initdb.d
+    networks:
+      - orbital-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U news_user -d news_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - orbital-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - orbital-net
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - orbital-net
+
+  # postgres admin manager interface
+  pgadmin:
+    image: dpage/pgadmin4
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    restart: unless-stopped
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+
+#create volumes, persist between execution
+volumes:
+  postgres_market_data:
+  postgres_news_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  pgadmin_data:
+
+networks:
+  orbital-net:
+    driver: bridge

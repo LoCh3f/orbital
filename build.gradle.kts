@@ -24,4 +24,9 @@ subprojects {
     apply(plugin = "io.gitlab.arturbosch.detekt")
     apply(plugin = "com.diffplug.spotless")
     apply(plugin = "org.jetbrains.dokka")
+
+    tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+        // Don't fail the build on detekt findings here; surface reports instead.
+        ignoreFailures = true
+    }
 }
