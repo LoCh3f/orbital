@@ -1,4 +1,4 @@
-package com.orbital.plugins
+package com.orbital.gateway
 
 import com.orbital.models.Asset
 import com.orbital.models.NewsArticle

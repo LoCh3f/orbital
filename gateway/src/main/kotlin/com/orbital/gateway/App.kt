@@ -1,7 +1,6 @@
 package com.orbital.gateway
 
 import com.orbital.plugins.configureMonitoring
-import com.orbital.plugins.configureRouting
 import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
 import io.ktor.server.engine.embeddedServer
