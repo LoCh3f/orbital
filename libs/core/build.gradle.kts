@@ -14,6 +14,9 @@ dependencies {
     // Monitoring base
     api("io.ktor:ktor-server-metrics-micrometer-jvm:2.3.5")
 
+    // Models library
+    api(project(":libs:models"))
+
 
     // Ktor Client
     api("io.ktor:ktor-client-core:2.3.5")
