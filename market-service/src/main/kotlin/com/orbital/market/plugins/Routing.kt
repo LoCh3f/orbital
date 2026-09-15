@@ -1,20 +1,24 @@
 package com.orbital.market.plugins
 
+import com.orbital.core.ApiResponse
+import com.orbital.core.ExternalApiException
+import com.orbital.core.NotFoundException
 import com.orbital.market.api.CoinGeckoClient
-import com.orbital.models.Asset
+import com.orbital.market.api.CoinGeckoMapper
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.serialization.json.Json
 
-private const val TOP_LIMIT = 50
-private const val ZERO_MARKET_CAP = 0L
+private const val TOP_LIMIT = 20
 
 fun Application.configureRouting() {
   val httpClient =
@@ -22,56 +26,79 @@ fun Application.configureRouting() {
   val coinGeckoClient = CoinGeckoClient(httpClient)
 
   routing {
-    get("/health") { call.respond(mapOf("status" to "healthy", "service" to "market")) }
-
-    get("/assets") {
-      kotlin
-          .runCatching { coinGeckoClient.getTopCryptos(TOP_LIMIT) }
-          .fold(
-              onSuccess = { assets ->
-                val domainAssets =
-                    assets.map {
-                      Asset(
-                          id = it.id,
-                          symbol = it.symbol,
-                          name = it.name,
-                          currentPrice = it.currentPrice,
-                          priceChange24h = it.priceChange24h,
-                          marketCap = it.marketCap ?: ZERO_MARKET_CAP)
-                    }
-                call.respond(domainAssets)
-              },
-              onFailure = { e ->
-                call.respond(mapOf("error" to "Failed to fetch assets: ${e.message}"))
-              })
-    }
-
-    get("/assets/{id}") {
-      kotlin
-          .runCatching {
-            val assetId =
-                call.parameters["id"] ?: throw IllegalArgumentException("Missing asset ID")
-            coinGeckoClient.getCryptoDetails(assetId)
-          }
-          .fold(
-              onSuccess = { asset ->
-                if (asset != null) {
-                  val domainAsset =
-                      Asset(
-                          id = asset.id,
-                          symbol = asset.symbol,
-                          name = asset.name,
-                          currentPrice = asset.currentPrice,
-                          priceChange24h = asset.priceChange24h,
-                          marketCap = asset.marketCap ?: ZERO_MARKET_CAP)
-                  call.respond(domainAsset)
-                } else {
-                  call.respond(mapOf("error" to "Asset not found"))
-                }
-              },
-              onFailure = { e ->
-                call.respond(mapOf("error" to "Failed to fetch asset: ${e.message}"))
-              })
-    }
+    healthRoute()
+    pricesRoute(coinGeckoClient)
+    priceRoute(coinGeckoClient)
+    statsRoute(coinGeckoClient)
   }
+}
+
+private fun Route.healthRoute() {
+  get("/health") { call.respond(mapOf("status" to "healthy", "service" to "market")) }
+}
+
+private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient) {
+  get("/api/v1/market/prices") {
+    val coinIds =
+        call.request.queryParameters["coinIds"]
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotBlank)
+            .orEmpty()
+    val prices = runCatching {
+      val fullList = coinGeckoClient.getTopCryptos(TOP_LIMIT)
+      if (coinIds.isEmpty()) fullList else fullList.filter { it.id in coinIds }
+    }
+    if (prices.isFailure) {
+      respondWithError(call, prices.exceptionOrNull(), "Failed to fetch prices")
+      return@get
+    }
+
+    val payload = prices.getOrThrow().map(CoinGeckoMapper::toCoinPrice)
+    call.respond(ApiResponse.Success(payload))
+  }
+}
+
+private fun Route.priceRoute(coinGeckoClient: CoinGeckoClient) {
+  get("/api/v1/market/prices/{coinId}") {
+    val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+    val result = runCatching {
+      val asset = CoinGeckoMapper.requireFound(coinGeckoClient.getCryptoDetails(coinId), coinId)
+      CoinGeckoMapper.toCoinPrice(asset)
+    }
+    if (result.isFailure) {
+      respondWithError(call, result.exceptionOrNull(), "Failed to fetch price")
+      return@get
+    }
+    call.respond(ApiResponse.Success(result.getOrThrow()))
+  }
+}
+
+private fun Route.statsRoute(coinGeckoClient: CoinGeckoClient) {
+  get("/api/v1/market/stats/{coinId}") {
+    val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+    val result = runCatching {
+      val asset = CoinGeckoMapper.requireFound(coinGeckoClient.getCryptoDetails(coinId), coinId)
+      CoinGeckoMapper.toMarketStats(asset)
+    }
+    if (result.isFailure) {
+      respondWithError(call, result.exceptionOrNull(), "Failed to fetch stats")
+      return@get
+    }
+    call.respond(ApiResponse.Success(result.getOrThrow()))
+  }
+}
+
+private suspend fun respondWithError(
+    call: io.ktor.server.application.ApplicationCall,
+    error: Throwable?,
+    fallbackMessage: String
+) {
+  val status =
+      when (error) {
+        is NotFoundException -> HttpStatusCode.NotFound
+        is ExternalApiException -> HttpStatusCode.BadGateway
+        else -> HttpStatusCode.InternalServerError
+      }
+  call.respond(status, ApiResponse.Error(status.value, error?.message ?: fallbackMessage))
 }
