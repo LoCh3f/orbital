@@ -1,3 +1,5 @@
+@file:Suppress("TooGenericExceptionCaught", "SwallowedException")
+
 package com.orbital.market.plugins
 
 import com.orbital.core.ApiResponse
@@ -5,6 +7,7 @@ import com.orbital.core.ExternalApiException
 import com.orbital.core.NotFoundException
 import com.orbital.market.api.CoinGeckoClient
 import com.orbital.market.api.CoinGeckoMapper
+import com.orbital.market.persistence.MarketRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -16,18 +19,21 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
 
 private const val TOP_LIMIT = 20
 
-fun Application.configureRouting() {
+fun Application.configureRouting(appScope: CoroutineScope) {
   val httpClient =
       HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }
   val coinGeckoClient = CoinGeckoClient(httpClient)
 
   routing {
     healthRoute()
-    pricesRoute(coinGeckoClient)
+    pricesRoute(coinGeckoClient, appScope)
     priceRoute(coinGeckoClient)
     statsRoute(coinGeckoClient)
   }
@@ -37,7 +43,9 @@ private fun Route.healthRoute() {
   get("/health") { call.respond(mapOf("status" to "healthy", "service" to "market")) }
 }
 
-private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient) {
+private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: CoroutineScope) {
+  val logger = LoggerFactory.getLogger("MarketRouting")
+
   get("/api/v1/market/prices") {
     val coinIds =
         call.request.queryParameters["coinIds"]
@@ -55,6 +63,16 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient) {
     }
 
     val payload = prices.getOrThrow().map(CoinGeckoMapper::toCoinPrice)
+
+    // Persist fetched snapshots asynchronously (best-effort) using application scope
+    appScope.launch {
+      try {
+        MarketRepository.saveAll(payload)
+      } catch (e: Exception) {
+        logger.warn("Failed to persist market prices", e)
+      }
+    }
+
     call.respond(ApiResponse.Success(payload))
   }
 }
