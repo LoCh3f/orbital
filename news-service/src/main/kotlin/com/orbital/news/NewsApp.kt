@@ -30,9 +30,9 @@ fun Application.module() {
   install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
 
   // Initialize persistence if env provided
-  val jdbcUrl = System.getenv("JDBC_URL") ?: "jdbc:postgresql://127.0.0.1:5432/orbital"
-  val dbUser = System.getenv("JDBC_USER") ?: "orbital"
-  val dbPass = System.getenv("JDBC_PASSWORD") ?: "orbital"
+  val jdbcUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://127.0.0.1:5432/orbital"
+  val dbUser = System.getenv("DB_USER") ?: "orbital"
+  val dbPass = System.getenv("DB_PASSWORD") ?: "orbital"
   val logger = LoggerFactory.getLogger("NewsApp")
   try {
     com.orbital.news.persistence.NewsRepository.initDatabase(jdbcUrl, dbUser, dbPass)

@@ -34,4 +34,6 @@ dependencies {
     implementation("com.zaxxer:HikariCP:5.0.1")
     implementation("org.postgresql:postgresql:42.6.0")
     implementation("redis.clients:jedis:4.3.2")
+
+    testImplementation(kotlin("test"))
 }
