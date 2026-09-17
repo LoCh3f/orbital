@@ -59,3 +59,6 @@ docker-compose.override.yml
 ### Temporary files ###
 *.tmp
 *.temp
+
+### Node (commitlint/husky tooling) ###
+node_modules/
