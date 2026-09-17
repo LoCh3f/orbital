@@ -8,6 +8,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -112,7 +113,7 @@ fun Application.configureRouting() {
             response.status to response.bodyAsText()
           }
 
-      call.respondText(body, status = status)
+      call.respondText(body, contentType = ContentType.Application.Json, status = status)
     }
 
     // Proxy news to news-service with cache
@@ -129,7 +130,7 @@ fun Application.configureRouting() {
             response.status to response.bodyAsText()
           }
 
-      call.respondText(body, status = status)
+      call.respondText(body, contentType = ContentType.Application.Json, status = status)
     }
   }
 }
