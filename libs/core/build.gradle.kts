@@ -13,6 +13,7 @@ dependencies {
     api("io.ktor:ktor-server-netty-jvm:2.3.5")
     // Monitoring base
     api("io.ktor:ktor-server-metrics-micrometer-jvm:2.3.5")
+    api("io.micrometer:micrometer-registry-prometheus:1.13.6")
 
     // Models library
     api(project(":libs:models"))
