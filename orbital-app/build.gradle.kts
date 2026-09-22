@@ -5,6 +5,9 @@ plugins {
     kotlin("plugin.serialization")
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose.compiler)
+    alias(libs.plugins.ktfmt)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.spotless)
 }
 
 kotlin {
@@ -49,4 +52,12 @@ compose.desktop {
     application {
         mainClass = "io.orbital.app.MainKt"
     }
+}
+
+detekt {
+    source.setFrom(
+        "src/commonMain/kotlin",
+        "src/desktopMain/kotlin",
+        "src/wasmJsMain/kotlin",
+    )
 }
