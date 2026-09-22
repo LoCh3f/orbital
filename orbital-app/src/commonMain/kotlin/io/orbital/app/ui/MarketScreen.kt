@@ -1,5 +1,6 @@
 package io.orbital.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,8 +14,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Divider
+import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,54 +38,94 @@ private val NEGATIVE_CHANGE_COLOR = Color(NEGATIVE_CHANGE_ARGB)
 private const val TRILLION = 1_000_000_000_000.0
 private const val BILLION = 1_000_000_000.0
 private const val MILLION = 1_000_000.0
+private const val THOUSANDS_GROUP_SIZE = 3
 
 @Composable
-fun marketScreen(state: UiState<List<MarketPrice>>, onRefresh: () -> Unit) {
-  when (state) {
-    is UiState.Loading -> {
-      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+fun marketScreen(
+    state: UiState<List<MarketPrice>>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+  Column(modifier = Modifier.fillMaxSize()) {
+    OutlinedTextField(
+        value = searchQuery,
+        onValueChange = onSearchQueryChange,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        label = { Text("Search coins") },
+        singleLine = true)
+
+    when (state) {
+      is UiState.Loading -> {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+          CircularProgressIndicator()
+        }
+      }
+      is UiState.Error -> {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally) {
+              Text("Unable to load market data: ${state.message}")
+              Button(onClick = onRefresh) { Text("Retry") }
+            }
+      }
+      is UiState.Success -> {
+        val filtered = filterCoins(state.data, searchQuery)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+              items(filtered) { coin -> coinPriceRow(coin) }
+            }
       }
     }
-    is UiState.Error -> {
-      Column(
-          modifier = Modifier.fillMaxSize(),
-          verticalArrangement = Arrangement.Center,
-          horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Unable to load market data: ${state.message}")
-            Button(onClick = onRefresh) { Text("Retry") }
-          }
-    }
-    is UiState.Success -> {
-      LazyColumn(
-          modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(state.data) { coin -> coinPriceRow(coin) }
-          }
-    }
+  }
+}
+
+private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPrice> {
+  if (query.isBlank()) return coins
+  val needle = query.trim().lowercase()
+  return coins.filter {
+    it.symbol.lowercase().contains(needle) || it.name.lowercase().contains(needle)
   }
 }
 
 @Composable
 private fun coinPriceRow(coin: MarketPrice) {
-  Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween) {
-          Column {
-            Text(coin.symbol)
-            Text(coin.name)
-          }
-          Column(horizontalAlignment = Alignment.End) {
-            Text(formatUsd(coin.currentPriceUsd))
-            Text(
-                formatPercent(coin.priceChangePercent24h),
-                color =
-                    if (coin.priceChangePercent24h >= 0) POSITIVE_CHANGE_COLOR
-                    else NEGATIVE_CHANGE_COLOR)
-            Text(formatCompactUsd(coin.marketCapUsd))
+  var expanded by remember { mutableStateOf(false) }
+  Card(
+      modifier =
+          Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable {
+            expanded = !expanded
+          }) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+          Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                  Text(coin.symbol)
+                  Text(coin.name)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                  Text(formatUsd(coin.currentPriceUsd))
+                  Text(
+                      formatPercent(coin.priceChangePercent24h),
+                      color =
+                          if (coin.priceChangePercent24h >= 0) POSITIVE_CHANGE_COLOR
+                          else NEGATIVE_CHANGE_COLOR)
+                  Text(formatCompactUsd(coin.marketCapUsd))
+                }
+              }
+          if (expanded) {
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                  Text("24h volume: ${formatCompactUsd(coin.volume24hUsd)}")
+                  Text("Updated: ${coin.lastUpdated}")
+                }
           }
         }
-  }
+      }
 }
 
 // java.util.Formatter-backed String.format is JVM-only, so numbers are formatted
@@ -98,7 +145,7 @@ private fun groupThousands(value: Long): String {
   val grouped = StringBuilder()
   for ((index, digit) in digits.withIndex()) {
     val remaining = digits.length - index
-    if (index > 0 && remaining % 3 == 0) grouped.append(',')
+    if (index > 0 && remaining % THOUSANDS_GROUP_SIZE == 0) grouped.append(',')
     grouped.append(digit)
   }
   return grouped.toString()

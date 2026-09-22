@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     application
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    alias(libs.plugins.shadow)
 }
 
 application {
@@ -20,10 +20,13 @@ dependencies {
     implementation(project(":libs:models"))
 
     // Specific for gateway
-    implementation("io.ktor:ktor-server-netty-jvm:2.3.5")
-    implementation("io.ktor:ktor-server-cors-jvm:2.3.5")
+    implementation(libs.ktor.server.netty)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.rate.limit)
 
     // Redis client (Jedis)
-    implementation("redis.clients:jedis:4.3.1")
-}
+    implementation(libs.jedis)
 
+    testImplementation(kotlin("test"))
+    testImplementation(libs.bundles.ktor.test)
+}

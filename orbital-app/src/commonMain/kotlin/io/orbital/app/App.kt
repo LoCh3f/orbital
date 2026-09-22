@@ -2,11 +2,10 @@ package io.orbital.app
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
+import androidx.compose.material.lightColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.orbital.app.data.MarketApiClient
 import io.orbital.app.data.MarketPrice
@@ -22,6 +22,7 @@ import io.orbital.app.data.NewsApiClient
 import io.orbital.app.data.NewsItem
 import io.orbital.app.data.createHttpClient
 import io.orbital.app.data.defaultGatewayUrl
+import io.orbital.app.ui.NewsFilters
 import io.orbital.app.ui.UiState
 import io.orbital.app.ui.marketScreen
 import io.orbital.app.ui.newsScreen
@@ -31,6 +32,8 @@ import kotlinx.coroutines.launch
 
 private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 private const val NEWS_REFRESH_INTERVAL_MS = 60_000L
+private const val PRIMARY_ARGB = 0xFF1565C0L
+private val PrimaryColor = Color(PRIMARY_ARGB)
 
 @Composable
 fun orbitalApp() {
@@ -42,6 +45,9 @@ fun orbitalApp() {
 
   var marketState by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
   var newsState by remember { mutableStateOf<UiState<List<NewsItem>>>(UiState.Loading) }
+  var marketSearchQuery by remember { mutableStateOf("") }
+  var newsSearchQuery by remember { mutableStateOf("") }
+  var selectedNewsCategory by remember { mutableStateOf<String?>(null) }
 
   suspend fun refreshMarket() {
     runCatching { marketApiClient.fetchMarketPrices() }
@@ -55,7 +61,7 @@ fun orbitalApp() {
   }
 
   suspend fun refreshNews() {
-    runCatching { newsApiClient.fetchNews() }
+    runCatching { newsApiClient.fetchNews(selectedNewsCategory) }
         .onSuccess { newsState = UiState.Success(it) }
         .onFailure { error ->
           val previous = newsState
@@ -72,23 +78,36 @@ fun orbitalApp() {
     }
   }
 
-  LaunchedEffect(Unit) {
+  LaunchedEffect(selectedNewsCategory) {
+    newsState = UiState.Loading
     while (isActive) {
       refreshNews()
       delay(NEWS_REFRESH_INTERVAL_MS)
     }
   }
 
-  MaterialTheme {
+  MaterialTheme(colors = lightColors(primary = PrimaryColor)) {
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
       Text("Orbital")
       Text("Market:")
-      Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-        marketScreen(marketState, onRefresh = { scope.launch { refreshMarket() } })
+      Column(modifier = Modifier.fillMaxSize().weight(1f)) {
+        marketScreen(
+            marketState,
+            searchQuery = marketSearchQuery,
+            onSearchQueryChange = { marketSearchQuery = it },
+            onRefresh = { scope.launch { refreshMarket() } })
       }
       Text("\nNews:")
-      Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-        newsScreen(newsState, onRefresh = { scope.launch { refreshNews() } })
+      Column(modifier = Modifier.fillMaxSize().weight(1f)) {
+        newsScreen(
+            newsState,
+            filters =
+                NewsFilters(
+                    category = selectedNewsCategory,
+                    onCategoryChange = { selectedNewsCategory = it },
+                    query = newsSearchQuery,
+                    onQueryChange = { newsSearchQuery = it }),
+            onRefresh = { scope.launch { refreshNews() } })
       }
     }
   }

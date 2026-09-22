@@ -5,3 +5,15 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+
+  - job_name: 'market-service'
+    static_configs:
+      - targets: ['market-service:8081']
+
+  - job_name: 'news-service'
+    static_configs:
+      - targets: ['news-service:8082']
