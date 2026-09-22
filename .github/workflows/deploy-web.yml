@@ -28,9 +28,18 @@ jobs:
       - name: Build wasmJs distribution
         run: ./gradlew :orbital-app:wasmJsBrowserDistribution
 
+      - name: Build API docs
+        run: ./gradlew dokkaHtmlMultiModule
+
+      - name: Assemble Pages site
+        run: |
+          mkdir -p site/docs
+          cp -r orbital-app/build/dist/wasmJs/productionExecutable/. site/
+          cp -r build/dokka/htmlMultiModule/. site/docs/
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: orbital-app/build/dist/wasmJs/productionExecutable
+          path: site
 
   deploy:
     needs: build
