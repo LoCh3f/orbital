@@ -2,12 +2,18 @@ package com.orbital.gateway
 
 import com.orbital.plugins.configureMetrics
 import com.orbital.plugins.configureMonitoring
+import com.orbital.plugins.configureRequestTracing
 import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.plugins.origin
+import io.ktor.server.plugins.ratelimit.RateLimit
+import kotlin.time.Duration.Companion.minutes
+
+private const val REQUESTS_PER_MINUTE = 60
 
 fun main() {
   embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
@@ -18,6 +24,8 @@ fun Application.module() {
   configureSerialization()
   configureMonitoring("gateway")
   configureMetrics("gateway")
+  configureRequestTracing()
+  configureRateLimit()
   configureCors()
   configureRouting()
 }
@@ -26,5 +34,14 @@ private fun Application.configureCors() {
   install(CORS) {
     anyHost()
     allowHeader(io.ktor.http.HttpHeaders.ContentType)
+  }
+}
+
+private fun Application.configureRateLimit() {
+  install(RateLimit) {
+    global {
+      rateLimiter(limit = REQUESTS_PER_MINUTE, refillPeriod = 1.minutes)
+      requestKey { call -> call.request.origin.remoteHost }
+    }
   }
 }
