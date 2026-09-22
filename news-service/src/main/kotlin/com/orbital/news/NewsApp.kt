@@ -3,6 +3,7 @@
 package com.orbital.news
 
 import com.orbital.news.plugins.configureRouting
+import com.orbital.plugins.configureMetrics
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -28,6 +29,7 @@ fun Application.module() {
   environment.monitor.subscribe(ApplicationStopped) { appScope.cancel() }
 
   install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+  configureMetrics("news")
 
   // Initialize persistence if env provided
   val jdbcUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://127.0.0.1:5432/orbital"

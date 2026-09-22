@@ -1,5 +1,6 @@
 package com.orbital.gateway
 
+import com.orbital.plugins.configureMetrics
 import com.orbital.plugins.configureMonitoring
 import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
@@ -16,6 +17,7 @@ fun main() {
 fun Application.module() {
   configureSerialization()
   configureMonitoring("gateway")
+  configureMetrics("gateway")
   configureCors()
   configureRouting()
 }
