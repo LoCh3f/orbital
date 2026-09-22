@@ -32,7 +32,14 @@ fun Application.module() {
 
 private fun Application.configureCors() {
   install(CORS) {
-    anyHost()
+    // Permissive by default (local dev, docker-compose — nothing sets this var there).
+    // Set CORS_ALLOWED_HOST (e.g. "loch3f.github.io") to restrict to a specific origin.
+    val allowedHost = System.getenv("CORS_ALLOWED_HOST")
+    if (allowedHost.isNullOrBlank()) {
+      anyHost()
+    } else {
+      allowHost(allowedHost, schemes = listOf("https"))
+    }
     allowHeader(io.ktor.http.HttpHeaders.ContentType)
   }
 }
