@@ -1,10 +1,10 @@
 plugins {
-    id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.3.21" apply false
-    id("com.ncorti.ktfmt.gradle") version "0.17.0" apply false
-    id("io.gitlab.arturbosch.detekt") version "1.23.4" apply false
-    id("com.diffplug.spotless") version "6.25.0" apply false
-    id("org.jetbrains.dokka") version "1.9.20" apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
+    alias(libs.plugins.ktfmt) apply false
+    alias(libs.plugins.detekt) apply false
+    alias(libs.plugins.spotless) apply false
+    alias(libs.plugins.dokka) apply false
 }
 allprojects {
     group = "com.orbital"

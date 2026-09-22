@@ -4,33 +4,31 @@ plugins {
 }
 dependencies {
     // ktor
-    api("io.ktor:ktor-server-core-jvm:2.3.5")
-    api("io.ktor:ktor-server-content-negotiation-jvm:2.3.5")
-    api("io.ktor:ktor-serialization-kotlinx-json-jvm:2.3.5")
-    api("io.ktor:ktor-serialization-kotlinx-json:2.3.5")
-    api("io.ktor:ktor-server-call-logging-jvm:2.3.5")
-    api("ch.qos.logback:logback-classic:1.5.13")
-    api("io.ktor:ktor-server-netty-jvm:2.3.5")
+    api(libs.ktor.server.core)
+    api(libs.ktor.server.content.negotiation)
+    api(libs.ktor.serialization.kotlinx.json.jvm)
+    api(libs.ktor.serialization.kotlinx.json)
+    api(libs.ktor.server.call.logging)
+    api(libs.ktor.server.call.id)
+    api(libs.logback.classic)
+    api(libs.ktor.server.netty)
     // Monitoring base
-    api("io.ktor:ktor-server-metrics-micrometer-jvm:2.3.5")
-    api("io.micrometer:micrometer-registry-prometheus:1.13.6")
+    api(libs.ktor.server.metrics.micrometer)
+    api(libs.micrometer.registry.prometheus)
+
+    // Structured (JSON) logging
+    api(libs.logstash.logback.encoder)
 
     // Models library
     api(project(":libs:models"))
 
-
     // Ktor Client
-    api("io.ktor:ktor-client-core:2.3.5")
-    api("io.ktor:ktor-client-cio:2.3.5")
-    api("io.ktor:ktor-client-content-negotiation:2.3.5")
-    api("io.ktor:ktor-client-logging:2.3.5")
+    api(libs.ktor.client.core)
+    api(libs.ktor.client.cio)
+    api(libs.ktor.client.content.negotiation)
+    api(libs.ktor.client.logging)
 
     // Kotlin Serialization
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
+    api(libs.kotlinx.serialization.json)
     testImplementation(kotlin("test"))
-
-    // Logging
-    api("ch.qos.logback:logback-classic:1.4.11")
-
-
 }
