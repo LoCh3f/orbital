@@ -26,11 +26,14 @@ import org.slf4j.LoggerFactory
 
 private const val TOP_LIMIT = 20
 
-fun Application.configureRouting(appScope: CoroutineScope) {
-  val httpClient =
-      HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }
-  val coinGeckoClient = CoinGeckoClient(httpClient)
-
+fun Application.configureRouting(
+    appScope: CoroutineScope,
+    coinGeckoClient: CoinGeckoClient =
+        CoinGeckoClient(
+            HttpClient(CIO) {
+              install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            })
+) {
   routing {
     healthRoute()
     pricesRoute(coinGeckoClient, appScope)

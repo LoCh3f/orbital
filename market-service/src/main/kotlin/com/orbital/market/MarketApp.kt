@@ -3,7 +3,9 @@
 package com.orbital.market
 
 import com.orbital.market.plugins.configureRouting
+import com.orbital.plugins.configureMetrics
 import com.orbital.plugins.configureMonitoring
+import com.orbital.plugins.configureRequestTracing
 import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -27,6 +29,8 @@ fun Application.module() {
 
   configureSerialization()
   configureMonitoring("market")
+  configureMetrics("market")
+  configureRequestTracing()
 
   // Initialize persistence if env provided
   val jdbcUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://127.0.0.1:5432/orbital"

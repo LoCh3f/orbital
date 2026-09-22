@@ -7,11 +7,7 @@ import com.orbital.models.NewsArticle
 import com.orbital.models.NewsCategory
 import com.orbital.news.api.NewsApiClient
 import com.orbital.news.api.NewsMapper
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -25,11 +21,10 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.JedisPool
 
-fun Application.configureRouting(appScope: CoroutineScope) {
-  val httpClient =
-      HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }
-  val newsApiClient = NewsApiClient(httpClient)
-
+fun Application.configureRouting(
+    appScope: CoroutineScope,
+    newsApiClient: NewsApiClient = NewsApiClient()
+) {
   // Redis cache (optional)
   val redisUrl = System.getenv("REDIS_URL")
   val jedisPool = redisUrl?.let { JedisPool(URI(it)) }

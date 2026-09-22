@@ -5,13 +5,16 @@ package com.orbital.gateway
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
+import io.ktor.server.plugins.callid.callId
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
@@ -88,9 +91,7 @@ suspend fun proxyWithCache(
   return status to body
 }
 
-fun Application.configureRouting() {
-  val client = HttpClient(CIO)
-
+fun Application.configureRouting(client: HttpClient = HttpClient(CIO)) {
   // Init cache: prefer Redis if REDIS_URL provided
   val redisUrl = System.getenv("REDIS_URL")
   val jedisPool = redisUrl?.let { JedisPool(URI(it)) }
@@ -108,6 +109,7 @@ fun Application.configureRouting() {
           proxyWithCache(cache, cacheKey) {
             val response: HttpResponse =
                 client.get("$MARKET_SERVICE_URL/api/v1/market/prices") {
+                  header(HttpHeaders.XRequestId, call.callId)
                   if (!coinIds.isNullOrBlank()) parameter("coinIds", coinIds)
                 }
             response.status to response.bodyAsText()
@@ -125,6 +127,7 @@ fun Application.configureRouting() {
           proxyWithCache(cache, cacheKey) {
             val response: HttpResponse =
                 client.get("$NEWS_SERVICE_URL/api/v1/news") {
+                  header(HttpHeaders.XRequestId, call.callId)
                   if (!category.isNullOrBlank()) parameter("category", category)
                 }
             response.status to response.bodyAsText()
