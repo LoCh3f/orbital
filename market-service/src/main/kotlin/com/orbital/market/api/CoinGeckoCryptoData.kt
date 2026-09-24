@@ -3,6 +3,9 @@ package com.orbital.market.api
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * Raw shape of one entry from CoinGecko's `/coins/markets` response. Mapped via [CoinGeckoMapper].
+ */
 @Serializable
 data class CoinGeckoCryptoData(
     val id: String,

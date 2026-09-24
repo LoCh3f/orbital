@@ -14,6 +14,10 @@ import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
 
+/**
+ * Append-only log of price snapshots — every fetch inserts fresh rows (own `id` per row, no
+ * upsert/dedup), so this is a time series of observations, not a keyed "current price" table.
+ */
 object MarketPriceTable : Table("market_prices") {
   val id: Column<String> = varchar("id", 36)
   val coinId: Column<String> = varchar("coin_id", 64)
@@ -27,7 +31,9 @@ object MarketPriceTable : Table("market_prices") {
   override val primaryKey = PrimaryKey(id)
 }
 
+/** Exposed/HikariCP-backed persistence for [MarketPriceTable]. */
 object MarketRepository {
+  /** Connects to Postgres and creates [MarketPriceTable] if it doesn't already exist. */
   fun initDatabase(jdbcUrl: String, user: String, password: String) {
     val config =
         HikariConfig().apply {
@@ -43,6 +49,9 @@ object MarketRepository {
     transaction { SchemaUtils.createMissingTablesAndColumns(MarketPriceTable) }
   }
 
+  /**
+   * Inserts one row per price. Per-row failures (e.g. constraint issues) are swallowed, not thrown.
+   */
   suspend fun saveAll(prices: List<CoinPrice>) =
       withContext(Dispatchers.IO) {
         transaction {
