@@ -9,45 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    services:
-      postgres-market:
-        image: postgres:15
-        env:
-          POSTGRES_DB: market_data
-          POSTGRES_USER: market_user
-          POSTGRES_PASSWORD: market_pass
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      postgres-news:
-        image: postgres:15
-        env:
-          POSTGRES_DB: news_data
-          POSTGRES_USER: news_user
-          POSTGRES_PASSWORD: news_pass
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5433:5432
-
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 3s
-          --health-retries 3
-        ports:
-          - 6379:6379
 
     steps:
     - uses: actions/checkout@v4
@@ -58,27 +19,17 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    - name: Cache Gradle packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.gradle/caches
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
-        restore-keys: ${{ runner.os }}-gradle
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v4
 
-    - name: Build with Gradle
-      run: ./gradlew build -x test
+    - name: Test & lint
+      run: ./gradlew check
 
-    - name: Run tests
-      run: ./gradlew test
-
-    - name: Run linter (ktlint)
-      run: ./gradlew ktlintCheck || true
-
-    - name: Upload test results
+    - name: Upload test & lint reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-reports
         path: |
           */build/reports/tests/
-          build/reports/ktlint/
+          */build/reports/detekt/
