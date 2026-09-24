@@ -14,6 +14,10 @@ import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
 
+/**
+ * Append-only log of fetched articles — [NewsMapper] assigns a fresh id per fetch, so repeated
+ * fetches of the same underlying article accumulate distinct rows rather than upserting.
+ */
 object NewsTable : Table("news") {
   val id: Column<String> = varchar("id", 36)
   val title: Column<String> = varchar("title", 1024)
@@ -25,7 +29,9 @@ object NewsTable : Table("news") {
   override val primaryKey = PrimaryKey(id)
 }
 
+/** Exposed/HikariCP-backed persistence for [NewsTable]. */
 object NewsRepository {
+  /** Connects to Postgres and creates [NewsTable] if it doesn't already exist. */
   fun initDatabase(jdbcUrl: String, user: String, password: String) {
     val config =
         HikariConfig().apply {
@@ -41,6 +47,10 @@ object NewsRepository {
     transaction { SchemaUtils.createMissingTablesAndColumns(NewsTable) }
   }
 
+  /**
+   * Inserts one row per article. Per-row failures (e.g. constraint issues) are swallowed, not
+   * thrown.
+   */
   suspend fun saveAll(articles: List<NewsArticle>) =
       withContext(Dispatchers.IO) {
         transaction {

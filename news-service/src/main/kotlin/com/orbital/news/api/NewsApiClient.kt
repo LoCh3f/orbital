@@ -11,7 +11,13 @@ import kotlinx.serialization.json.Json
 
 private const val DEFAULT_PAGE_SIZE = 10
 
+/**
+ * Wraps NewsAPI's `/v2/top-headlines` endpoint. **Never actually sends an API key**, so real
+ * requests always 401 and every call falls back to [fallbackArticles] — this is a deliberate,
+ * temporary state (real NewsAPI integration costs money and is intentionally deferred), not a bug.
+ */
 class NewsApiClient(private val client: HttpClient = defaultClient()) {
+  /** Always returns [fallbackArticles] today; see the class doc for why. */
   suspend fun fetchTopHeadlines(category: String? = null): List<NewsApiArticle> {
     return runCatching {
           val response =
@@ -54,6 +60,7 @@ class NewsApiClient(private val client: HttpClient = defaultClient()) {
   }
 }
 
+/** Raw shape of a NewsAPI `/v2/top-headlines` response. */
 @kotlinx.serialization.Serializable
 data class NewsApiResponse(
     val status: String? = null,

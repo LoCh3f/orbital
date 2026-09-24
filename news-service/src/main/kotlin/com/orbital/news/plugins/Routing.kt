@@ -21,6 +21,12 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.JedisPool
 
+/**
+ * Registers `/health` and `GET /api/v1/news`. The news route resolves `?category=`
+ * case-insensitively (defaulting to [NewsCategory.CRYPTO]), serves from a short-lived Redis cache
+ * when available, and otherwise fetches via [newsApiClient] (currently always the mocked fallback —
+ * see [NewsApiClient]), persisting the result to Postgres asynchronously and best-effort.
+ */
 fun Application.configureRouting(
     appScope: CoroutineScope,
     newsApiClient: NewsApiClient = NewsApiClient()
