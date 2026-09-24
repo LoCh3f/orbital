@@ -10,6 +10,11 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
+/**
+ * A single news article, as returned by `GET /api/v1/news`. [id] is freshly generated on every
+ * fetch (see `NewsMapper.toDomain`), so repeated fetches of the same underlying article produce
+ * distinct rows when persisted — this is an accepted append-only design, not a bug.
+ */
 @Serializable
 data class NewsArticle(
     @Serializable(with = UuidSerializer::class) val id: UUID,
@@ -21,6 +26,7 @@ data class NewsArticle(
     val category: NewsCategory
 )
 
+/** Serializes [UUID] as a plain string rather than kotlinx.serialization's default. */
 object UuidSerializer : KSerializer<UUID> {
   override val descriptor: SerialDescriptor =
       PrimitiveSerialDescriptor("UUID", PrimitiveKind.STRING)
