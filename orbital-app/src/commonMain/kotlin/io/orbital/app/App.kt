@@ -1,11 +1,16 @@
 package io.orbital.app
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.lightColors
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,7 +20,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import io.orbital.app.data.MarketApiClient
 import io.orbital.app.data.MarketPrice
 import io.orbital.app.data.NewsApiClient
@@ -24,7 +28,9 @@ import io.orbital.app.data.createHttpClient
 import io.orbital.app.data.defaultGatewayUrl
 import io.orbital.app.ui.NewsFilters
 import io.orbital.app.ui.UiState
+import io.orbital.app.ui.marketIcon
 import io.orbital.app.ui.marketScreen
+import io.orbital.app.ui.newsIcon
 import io.orbital.app.ui.newsScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -33,8 +39,16 @@ import kotlinx.coroutines.launch
 private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 private const val NEWS_REFRESH_INTERVAL_MS = 60_000L
 private const val PRIMARY_ARGB = 0xFF1565C0L
+private const val MUTED_ARGB = 0xFF9E9E9EL
 private val PrimaryColor = Color(PRIMARY_ARGB)
+private val MutedColor = Color(MUTED_ARGB)
 
+private enum class Section {
+  MARKET,
+  NEWS
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun orbitalApp() {
   val gatewayUrl = remember { defaultGatewayUrl() }
@@ -43,6 +57,7 @@ fun orbitalApp() {
   val newsApiClient = remember { NewsApiClient(baseUrl = gatewayUrl, client = client) }
   val scope = rememberCoroutineScope()
 
+  var selectedSection by remember { mutableStateOf(Section.MARKET) }
   var marketState by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
   var newsState by remember { mutableStateOf<UiState<List<NewsItem>>>(UiState.Loading) }
   var marketSearchQuery by remember { mutableStateOf("") }
@@ -86,29 +101,49 @@ fun orbitalApp() {
     }
   }
 
-  MaterialTheme(colors = lightColors(primary = PrimaryColor)) {
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-      Text("Orbital")
-      Text("Market:")
-      Column(modifier = Modifier.fillMaxSize().weight(1f)) {
-        marketScreen(
-            marketState,
-            searchQuery = marketSearchQuery,
-            onSearchQueryChange = { marketSearchQuery = it },
-            onRefresh = { scope.launch { refreshMarket() } })
-      }
-      Text("\nNews:")
-      Column(modifier = Modifier.fillMaxSize().weight(1f)) {
-        newsScreen(
-            newsState,
-            filters =
-                NewsFilters(
-                    category = selectedNewsCategory,
-                    onCategoryChange = { selectedNewsCategory = it },
-                    query = newsSearchQuery,
-                    onQueryChange = { newsSearchQuery = it }),
-            onRefresh = { scope.launch { refreshNews() } })
+  MaterialTheme(colorScheme = lightColorScheme(primary = PrimaryColor)) {
+    Scaffold(topBar = { orbitalTopBar(selectedSection) { selectedSection = it } }) { padding ->
+      Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        when (selectedSection) {
+          Section.MARKET ->
+              marketScreen(
+                  marketState,
+                  searchQuery = marketSearchQuery,
+                  onSearchQueryChange = { marketSearchQuery = it },
+                  onRefresh = { scope.launch { refreshMarket() } })
+          Section.NEWS ->
+              newsScreen(
+                  newsState,
+                  filters =
+                      NewsFilters(
+                          category = selectedNewsCategory,
+                          onCategoryChange = { selectedNewsCategory = it },
+                          query = newsSearchQuery,
+                          onQueryChange = { newsSearchQuery = it }),
+                  onRefresh = { scope.launch { refreshNews() } })
+        }
       }
     }
   }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun orbitalTopBar(selectedSection: Section, onSectionSelected: (Section) -> Unit) {
+  TopAppBar(
+      title = { Text("Orbital") },
+      actions = {
+        IconButton(onClick = { onSectionSelected(Section.MARKET) }) {
+          Icon(
+              marketIcon(),
+              contentDescription = "Market",
+              tint = if (selectedSection == Section.MARKET) PrimaryColor else MutedColor)
+        }
+        IconButton(onClick = { onSectionSelected(Section.NEWS) }) {
+          Icon(
+              newsIcon(),
+              contentDescription = "News",
+              tint = if (selectedSection == Section.NEWS) PrimaryColor else MutedColor)
+        }
+      })
 }
