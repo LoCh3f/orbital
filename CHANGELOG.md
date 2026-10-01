@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/LoCh3f/orbital/compare/v1.0.2...v1.1.0) (2026-10-01)
+
+
+### Features
+
+* **app:** add coin logo loading for desktop and web ([a0ca01f](https://github.com/LoCh3f/orbital/commit/a0ca01f4dd5435c7f090b6e5fd0c2c3569c81954))
+* **app:** add price sparkline chart via Tradingview charts ([ff507a3](https://github.com/LoCh3f/orbital/commit/ff507a34808075242c5ba526f79e0b91b7ce9683))
+* **app:** add sparkline and logo fields to marketprice ([5c8f0be](https://github.com/LoCh3f/orbital/commit/5c8f0be9d8ac83db0fc19b3a6d08645e9ba0c809))
+* **market:** expose 7-day sparkline and logo URL from CoinGecko ([60bc5c3](https://github.com/LoCh3f/orbital/commit/60bc5c3c00fe37349781de1c959282fb6eee08c8))
+
+
+### Bug Fixes
+
+* **app:** missing nav icon file ([231e371](https://github.com/LoCh3f/orbital/commit/231e371a112ad6224b464f63ac2758f8e320c56b))
+
 ## [1.0.2](https://github.com/LoCh3f/orbital/compare/v1.0.1...v1.0.2) (2026-09-24)
 
 
