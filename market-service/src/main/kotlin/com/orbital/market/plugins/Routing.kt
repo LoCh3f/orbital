@@ -51,9 +51,10 @@ private fun Route.healthRoute() {
 }
 
 /**
- * `GET /api/v1/market/prices` — top [TOP_LIMIT] coins by market cap, optionally filtered by a
- * comma-separated `coinIds` query param. Persists the fetched batch to Postgres asynchronously
- * (best-effort — a persistence failure is logged, never fails the response).
+ * `GET /api/v1/market/prices` — top [TOP_LIMIT] coins by market cap, or exactly the coins named by
+ * a comma-separated `coinIds` query param (regardless of their rank). Persists the fetched batch to
+ * Postgres asynchronously (best-effort — a persistence failure is logged, never fails the
+ * response).
  */
 private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: CoroutineScope) {
   val logger = LoggerFactory.getLogger("MarketRouting")
@@ -66,8 +67,8 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: Corout
             ?.filter(String::isNotBlank)
             .orEmpty()
     val prices = runCatching {
-      val fullList = coinGeckoClient.getTopCryptos(TOP_LIMIT)
-      if (coinIds.isEmpty()) fullList else fullList.filter { it.id in coinIds }
+      if (coinIds.isEmpty()) coinGeckoClient.getTopCryptos(TOP_LIMIT)
+      else coinGeckoClient.getCryptosByIds(coinIds)
     }
     if (prices.isFailure) {
       respondWithError(call, prices.exceptionOrNull(), "Failed to fetch prices")
@@ -76,7 +77,6 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: Corout
 
     val payload = prices.getOrThrow().map(CoinGeckoMapper::toCoinPrice)
 
-    // Persist fetched snapshots asynchronously (best-effort) using application scope
     appScope.launch {
       try {
         MarketRepository.saveAll(payload)

@@ -27,6 +27,7 @@ kotlinxCoroutines = "1.7.3"
 exposed = "0.41.1"
 hikari = "5.0.1"
 postgres = "42.6.0"
+h2 = "2.3.232"
 jedis = "4.3.2"
 
 [libraries]
@@ -35,6 +36,7 @@ ktor-server-core = { module = "io.ktor:ktor-server-core-jvm", version.ref = "kto
 ktor-server-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation-jvm", version.ref = "ktor" }
 ktor-server-cors = { module = "io.ktor:ktor-server-cors-jvm", version.ref = "ktor" }
+ktor-server-forwarded-header = { module = "io.ktor:ktor-server-forwarded-header-jvm", version.ref = "ktor" }
 ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging-jvm", version.ref = "ktor" }
 ktor-server-call-id = { module = "io.ktor:ktor-server-call-id-jvm", version.ref = "ktor" }
 ktor-server-metrics-micrometer = { module = "io.ktor:ktor-server-metrics-micrometer-jvm", version.ref = "ktor" }
@@ -81,6 +83,7 @@ exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exp
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgres" }
+h2 = { module = "com.h2database:h2", version.ref = "h2" }
 jedis = { module = "redis.clients:jedis", version.ref = "jedis" }
 
 [bundles]

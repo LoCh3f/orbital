@@ -84,4 +84,52 @@ class RoutingTest {
 
     assertEquals(HttpStatusCode.BadGateway, response.status)
   }
+
+  @Test
+  fun `market prices proxy falls back to upstream when cache read throws`() = testApplication {
+    val mockClient =
+        HttpClient(
+            MockEngine { _ ->
+              respond(
+                  content = """{"data":[]}""",
+                  status = HttpStatusCode.OK,
+                  headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            })
+    @Suppress("TooGenericExceptionThrown")
+    val throwingCache =
+        object : Cache {
+          override fun get(key: String): String? = throw RuntimeException("redis down")
+
+          override fun setex(key: String, ttlSeconds: Int, value: String) {
+            // No-op for testing
+          }
+        }
+    application { configureRouting(client = mockClient, cache = throwingCache) }
+
+    val response = client.get("/api/v1/market/prices")
+
+    assertEquals(HttpStatusCode.OK, response.status)
+    assertEquals("""{"data":[]}""", response.bodyAsText())
+  }
+}
+
+class MemoryCacheTest {
+  @Test
+  fun `setex evicts the soonest-to-expire entry once the cache is full`() {
+    val cache = MemoryCache(maxEntries = 2)
+    cache.setex("a", ttlSeconds = 100, value = "A")
+    cache.setex("b", ttlSeconds = 1, value = "B")
+    cache.setex("c", ttlSeconds = 100, value = "C")
+
+    assertEquals("A", cache.get("a"))
+    assertEquals(null, cache.get("b"))
+    assertEquals("C", cache.get("c"))
+  }
+
+  @Test
+  fun `setex never grows the cache past maxEntries`() {
+    val cache = MemoryCache(maxEntries = 5)
+    repeat(50) { i -> cache.setex("key-$i", ttlSeconds = 100, value = "v$i") }
+    assertTrue(cache.size() <= 5)
+  }
 }

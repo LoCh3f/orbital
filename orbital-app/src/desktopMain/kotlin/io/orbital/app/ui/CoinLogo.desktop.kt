@@ -16,7 +16,7 @@ import io.ktor.client.request.get
 import io.orbital.app.data.createHttpClient
 
 private val client by lazy { createHttpClient() }
-private val logoCache = mutableMapOf<String, ImageBitmap>()
+internal val logoCache: MutableMap<String, ImageBitmap> = java.util.concurrent.ConcurrentHashMap()
 
 private suspend fun fetchCoinLogo(url: String): ImageBitmap? =
     runCatching { client.get(url).body<ByteArray>().decodeToImageBitmap() }.getOrNull()

@@ -43,6 +43,7 @@ kotlin {
                 implementation(libs.ktor.client.cio.orbital)
             }
         }
+        val desktopTest by getting { dependencies { implementation(kotlin("test")) } }
         val wasmJsMain by getting {
             dependencies { implementation(libs.ktor.client.js.orbital) }
         }

@@ -4,19 +4,17 @@ package com.orbital.news
 
 import com.orbital.news.plugins.configureRouting
 import com.orbital.plugins.configureMetrics
+import com.orbital.plugins.configureMonitoring
 import com.orbital.plugins.configureRequestTracing
-import io.ktor.serialization.kotlinx.json.json
+import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
-import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 
 /** Starts news-service's Netty server on port 8082. */
@@ -34,7 +32,8 @@ fun Application.module() {
   val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   environment.monitor.subscribe(ApplicationStopped) { appScope.cancel() }
 
-  install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+  configureSerialization()
+  configureMonitoring("news")
   configureMetrics("news")
   configureRequestTracing()
 

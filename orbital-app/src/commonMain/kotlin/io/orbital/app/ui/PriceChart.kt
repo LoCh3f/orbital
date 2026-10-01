@@ -76,31 +76,3 @@ window.renderSparkline = function(container, valuesCsv, positive, width, height,
   chart.timeScale().fitContent();
 };
 """
-
-// The WebView's body fills the whole embedded chart area on desktop, so it's used directly as
-// the chart container rather than a nested div (sidesteps relying on percentage-sized nested
-// elements resolving correctly at load time).
-internal fun sparklineHtmlDocument(
-    libraryJs: String,
-    valuesCsv: String,
-    positive: Boolean,
-    interactive: Boolean
-): String =
-    """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; width: 100%; height: 100%; }</style>
-<script>$libraryJs</script>
-<script>$RENDER_SPARKLINE_JS</script>
-</head>
-<body>
-<script>
-  window.addEventListener('load', function() {
-    renderSparkline(document.body, '$valuesCsv', $positive, window.innerWidth, window.innerHeight, $interactive);
-  });
-</script>
-</body>
-</html>
-"""
