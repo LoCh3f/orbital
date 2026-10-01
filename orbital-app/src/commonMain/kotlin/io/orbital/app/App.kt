@@ -1,6 +1,7 @@
 package io.orbital.app
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -10,7 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,8 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.orbital.app.data.MarketApiClient
 import io.orbital.app.data.MarketPrice
 import io.orbital.app.data.NewsApiClient
@@ -27,25 +31,24 @@ import io.orbital.app.data.NewsItem
 import io.orbital.app.data.createHttpClient
 import io.orbital.app.data.defaultGatewayUrl
 import io.orbital.app.ui.NewsFilters
+import io.orbital.app.ui.ORBITAL_DARK_COLOR_SCHEME
 import io.orbital.app.ui.UiState
 import io.orbital.app.ui.marketIcon
 import io.orbital.app.ui.marketScreen
 import io.orbital.app.ui.newsIcon
 import io.orbital.app.ui.newsScreen
+import io.orbital.app.ui.orbitalLogoMark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 private const val NEWS_REFRESH_INTERVAL_MS = 60_000L
-private const val PRIMARY_ARGB = 0xFF1565C0L
-private const val MUTED_ARGB = 0xFF9E9E9EL
-private val PrimaryColor = Color(PRIMARY_ARGB)
-private val MutedColor = Color(MUTED_ARGB)
+private val LOGO_SIZE = 28.dp
 
-private enum class Section {
-  MARKET,
-  NEWS
+private enum class Section(val label: String) {
+  MARKET("Markets"),
+  NEWS("News")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,7 +104,7 @@ fun orbitalApp() {
     }
   }
 
-  MaterialTheme(colorScheme = lightColorScheme(primary = PrimaryColor)) {
+  MaterialTheme(colorScheme = ORBITAL_DARK_COLOR_SCHEME) {
     Scaffold(topBar = { orbitalTopBar(selectedSection) { selectedSection = it } }) { padding ->
       Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         when (selectedSection) {
@@ -131,19 +134,42 @@ fun orbitalApp() {
 @Composable
 private fun orbitalTopBar(selectedSection: Section, onSectionSelected: (Section) -> Unit) {
   TopAppBar(
-      title = { Text("Orbital") },
+      title = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          orbitalLogoMark(modifier = Modifier.padding(end = 8.dp), size = LOGO_SIZE)
+          Text(
+              "ORBITAL",
+              color = MaterialTheme.colorScheme.primary,
+              fontWeight = FontWeight.Bold,
+              fontSize = 16.sp,
+              letterSpacing = 1.5.sp)
+          Text(
+              "  /  ${selectedSection.label}",
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontSize = 16.sp)
+        }
+      },
       actions = {
         IconButton(onClick = { onSectionSelected(Section.MARKET) }) {
           Icon(
               marketIcon(),
               contentDescription = "Market",
-              tint = if (selectedSection == Section.MARKET) PrimaryColor else MutedColor)
+              tint =
+                  if (selectedSection == Section.MARKET) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = { onSectionSelected(Section.NEWS) }) {
           Icon(
               newsIcon(),
               contentDescription = "News",
-              tint = if (selectedSection == Section.NEWS) PrimaryColor else MutedColor)
+              tint =
+                  if (selectedSection == Section.NEWS) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-      })
+      },
+      colors =
+          TopAppBarDefaults.topAppBarColors(
+              containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+              titleContentColor = MaterialTheme.colorScheme.onSurface,
+              actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant))
 }
