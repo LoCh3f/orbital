@@ -27,8 +27,9 @@ kotlin {
             dependencies {
                 implementation(libs.compose.runtime)
                 implementation(libs.compose.foundation)
-                implementation(libs.compose.material)
+                implementation(libs.compose.material3)
                 implementation(libs.compose.ui)
+                implementation(compose.components.resources)
                 implementation(libs.ktor.client.core.orbital)
                 implementation(libs.ktor.client.content.negotiation.orbital)
                 implementation(libs.ktor.serialization.kotlinx.json.orbital)

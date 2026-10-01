@@ -18,7 +18,9 @@ data class CoinPrice(
     val marketCapUsd: Double,
     val volume24hUsd: Double,
     val priceChangePercent24h: Double,
-    @Serializable(with = InstantSerializer::class) val lastUpdated: Instant
+    @Serializable(with = InstantSerializer::class) val lastUpdated: Instant,
+    val sparklineIn7d: List<Double> = emptyList(),
+    val logoUrl: String = ""
 )
 
 object InstantSerializer : KSerializer<Instant> {
