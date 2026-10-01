@@ -27,12 +27,17 @@ private val MARKET_SERVICE_URL = System.getenv("MARKET_SERVICE_URL") ?: "http://
 private val NEWS_SERVICE_URL = System.getenv("NEWS_SERVICE_URL") ?: "http://127.0.0.1:8082"
 private const val DEFAULT_CACHE_TTL = 60 // seconds
 
+/**
+ * Minimal string cache abstraction the gateway proxies through, backed by [RedisCache] or
+ * [MemoryCache].
+ */
 interface Cache {
   fun get(key: String): String?
 
   fun setex(key: String, ttlSeconds: Int, value: String)
 }
 
+/** [Cache] backed by Redis, used when `REDIS_URL` is set. */
 class RedisCache(private val pool: JedisPool) : Cache {
   override fun get(key: String): String? = pool.resource.use { it.get(key) }
 
@@ -43,6 +48,7 @@ class RedisCache(private val pool: JedisPool) : Cache {
 
 private data class MemEntry(val value: String, val expiresAt: Long)
 
+/** In-process, TTL-expiring [Cache] used as a fallback when no `REDIS_URL` is configured. */
 class MemoryCache : Cache {
   private val map = ConcurrentHashMap<String, MemEntry>()
 
@@ -61,6 +67,11 @@ class MemoryCache : Cache {
   }
 }
 
+/**
+ * Runs [block] (an upstream fetch) behind [cache], keyed by [cacheKey]. A cache hit is stored as
+ * `"<statusCode>\n<body>"` and decoded back into the same pair; only 2xx responses are cached, for
+ * [ttlSeconds]. Cache writes are best-effort — a failure to write never fails the request.
+ */
 suspend fun proxyWithCache(
     cache: Cache?,
     cacheKey: String,
@@ -91,6 +102,12 @@ suspend fun proxyWithCache(
   return status to body
 }
 
+/**
+ * Registers the gateway's proxy routes: `/api/v1/market/prices` → market-service and `/api/v1/news`
+ * → news-service, both cached via [proxyWithCache] and forwarded with the request's `X-Request-Id`
+ * for cross-service log correlation. Prefers Redis for the cache if `REDIS_URL` is set, otherwise
+ * falls back to an in-process [MemoryCache].
+ */
 fun Application.configureRouting(client: HttpClient = HttpClient(CIO)) {
   // Init cache: prefer Redis if REDIS_URL provided
   val redisUrl = System.getenv("REDIS_URL")

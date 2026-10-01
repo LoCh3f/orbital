@@ -26,6 +26,10 @@ import org.slf4j.LoggerFactory
 
 private const val TOP_LIMIT = 20
 
+/**
+ * Registers `/health`, `/api/v1/market/prices`, `/api/v1/market/prices/{coinId}`, and
+ * `/api/v1/market/stats/{coinId}`.
+ */
 fun Application.configureRouting(
     appScope: CoroutineScope,
     coinGeckoClient: CoinGeckoClient =
@@ -46,6 +50,11 @@ private fun Route.healthRoute() {
   get("/health") { call.respond(mapOf("status" to "healthy", "service" to "market")) }
 }
 
+/**
+ * `GET /api/v1/market/prices` — top [TOP_LIMIT] coins by market cap, optionally filtered by a
+ * comma-separated `coinIds` query param. Persists the fetched batch to Postgres asynchronously
+ * (best-effort — a persistence failure is logged, never fails the response).
+ */
 private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: CoroutineScope) {
   val logger = LoggerFactory.getLogger("MarketRouting")
 
@@ -80,6 +89,7 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: Corout
   }
 }
 
+/** `GET /api/v1/market/prices/{coinId}` — a single coin's price, or 404 if unknown. */
 private fun Route.priceRoute(coinGeckoClient: CoinGeckoClient) {
   get("/api/v1/market/prices/{coinId}") {
     val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
@@ -95,6 +105,7 @@ private fun Route.priceRoute(coinGeckoClient: CoinGeckoClient) {
   }
 }
 
+/** `GET /api/v1/market/stats/{coinId}` — extended stats (ATH/ATL, supply) for a single coin. */
 private fun Route.statsRoute(coinGeckoClient: CoinGeckoClient) {
   get("/api/v1/market/stats/{coinId}") {
     val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")

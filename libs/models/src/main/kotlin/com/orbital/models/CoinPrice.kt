@@ -9,6 +9,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
+/** A single coin's current price snapshot, as returned by `GET /api/v1/market/prices`. */
 @Serializable
 data class CoinPrice(
     val coinId: String,
@@ -18,9 +19,12 @@ data class CoinPrice(
     val marketCapUsd: Double,
     val volume24hUsd: Double,
     val priceChangePercent24h: Double,
-    @Serializable(with = InstantSerializer::class) val lastUpdated: Instant
+    @Serializable(with = InstantSerializer::class) val lastUpdated: Instant,
+    val sparklineIn7d: List<Double> = emptyList(),
+    val logoUrl: String = ""
 )
 
+/** Serializes [Instant] as a plain ISO-8601 string rather than kotlinx.serialization's default. */
 object InstantSerializer : KSerializer<Instant> {
   override val descriptor: SerialDescriptor =
       PrimitiveSerialDescriptor("Instant", PrimitiveKind.STRING)
