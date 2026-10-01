@@ -10,9 +10,6 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
-// compose-webview-multiplatform (desktop KCEF backend) is published here.
-repositories { maven("https://jogamp.org/deployment/maven") }
-
 kotlin {
     jvm("desktop")
 
@@ -44,7 +41,6 @@ kotlin {
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation(libs.ktor.client.cio.orbital)
-                implementation("io.github.kevinnzou:compose-webview-multiplatform:2.0.3")
             }
         }
         val wasmJsMain by getting {
@@ -56,10 +52,6 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "io.orbital.app.MainKt"
-        // Required by KCEF (embedded Chromium, used to render price charts) on the JVM.
-        jvmArgs += listOf(
-            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED")
     }
 }
 
