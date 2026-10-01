@@ -17,11 +17,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.slf4j.LoggerFactory
 
+/** Starts market-service's Netty server on port 8081. */
 fun main() {
   embeddedServer(Netty, port = 8081, host = "0.0.0.0", module = Application::module)
       .start(wait = true)
 }
 
+/**
+ * Wires up serialization, health/metrics, request tracing, routing, and (best-effort) Postgres
+ * persistence — a failed DB connection is logged and swallowed, since the DB is optional in dev.
+ */
 fun Application.module() {
   // Application-scoped coroutine scope for background tasks (structured concurrency)
   val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

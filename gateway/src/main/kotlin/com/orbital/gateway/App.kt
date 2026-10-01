@@ -15,11 +15,16 @@ import kotlin.time.Duration.Companion.minutes
 
 private const val REQUESTS_PER_MINUTE = 60
 
+/** Starts the gateway's Netty server on port 8080. */
 fun main() {
   embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
       .start(wait = true)
 }
 
+/**
+ * Wires up serialization, health/metrics, request tracing, rate limiting, CORS, and the proxy
+ * routes.
+ */
 fun Application.module() {
   configureSerialization()
   configureMonitoring("gateway")
@@ -30,6 +35,11 @@ fun Application.module() {
   configureRouting()
 }
 
+/**
+ * Permissive by default so any origin (including the web `orbital-app` build) can call this API
+ * during local development. Set `CORS_ALLOWED_HOST` to restrict to a single HTTPS origin in
+ * production deployments.
+ */
 private fun Application.configureCors() {
   install(CORS) {
     // Permissive by default (local dev, docker-compose — nothing sets this var there).
@@ -44,6 +54,7 @@ private fun Application.configureCors() {
   }
 }
 
+/** Global limit of [REQUESTS_PER_MINUTE] requests per minute, keyed by remote host. */
 private fun Application.configureRateLimit() {
   install(RateLimit) {
     global {
