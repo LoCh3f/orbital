@@ -22,7 +22,8 @@ class CoinGeckoMapperTest {
           atl = 67.81,
           circulatingSupply = 19_600_000.0,
           totalSupply = 21_000_000.0,
-          lastUpdated = "2024-01-01T00:00:00Z")
+          lastUpdated = "2024-01-01T00:00:00Z",
+          sparklineIn7d = CoinGeckoSparkline(price = listOf(64000.0, 64500.0, 65000.0)))
 
   @Test
   fun `toCoinPrice maps and uppercases symbol`() {
@@ -32,12 +33,20 @@ class CoinGeckoMapperTest {
     assertEquals(65000.0, price.currentPriceUsd)
     assertEquals(2.35, price.priceChangePercent24h)
     assertEquals(Instant.parse("2024-01-01T00:00:00Z"), price.lastUpdated)
+    assertEquals(listOf(64000.0, 64500.0, 65000.0), price.sparklineIn7d)
+    assertEquals("https://example.com/btc.png", price.logoUrl)
   }
 
   @Test
   fun `toCoinPrice defaults missing price change to zero`() {
     val price = CoinGeckoMapper.toCoinPrice(sample.copy(priceChangePercentage24h = null))
     assertEquals(0.0, price.priceChangePercent24h)
+  }
+
+  @Test
+  fun `toCoinPrice defaults missing sparkline to empty list`() {
+    val price = CoinGeckoMapper.toCoinPrice(sample.copy(sparklineIn7d = null))
+    assertEquals(emptyList(), price.sparklineIn7d)
   }
 
   @Test

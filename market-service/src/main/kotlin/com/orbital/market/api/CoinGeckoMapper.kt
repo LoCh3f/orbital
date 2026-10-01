@@ -15,7 +15,9 @@ object CoinGeckoMapper {
           marketCapUsd = data.marketCap.toDouble(),
           volume24hUsd = data.totalVolume.toDouble(),
           priceChangePercent24h = data.priceChangePercentage24h ?: 0.0,
-          lastUpdated = Instant.parse(data.lastUpdated))
+          lastUpdated = Instant.parse(data.lastUpdated),
+          sparklineIn7d = data.sparklineIn7d?.price.orEmpty(),
+          logoUrl = data.image)
 
   fun toMarketStats(data: CoinGeckoCryptoData): MarketStats =
       MarketStats(
