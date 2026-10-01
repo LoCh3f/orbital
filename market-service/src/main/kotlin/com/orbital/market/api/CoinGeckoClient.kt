@@ -17,7 +17,7 @@ class CoinGeckoClient(private val client: HttpClient) {
           parameter("order", "market_cap_desc")
           parameter("per_page", limit)
           parameter("page", 1)
-          parameter("sparkline", false)
+          parameter("sparkline", true)
           parameter("price_change_percentage", "24h")
         }
     return response.body()

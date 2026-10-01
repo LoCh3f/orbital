@@ -14,5 +14,7 @@ data class MarketPrice(
     val marketCapUsd: Double,
     val volume24hUsd: Double,
     val priceChangePercent24h: Double,
-    val lastUpdated: String
+    val lastUpdated: String,
+    val sparklineIn7d: List<Double> = emptyList(),
+    val logoUrl: String = ""
 )

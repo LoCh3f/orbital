@@ -34,5 +34,8 @@ data class CoinGeckoCryptoData(
     @SerialName("atl_change_percentage") val atlChangePercentage: Double? = null,
     @SerialName("atl_date") val atlDate: String? = null,
     val roi: CoinGeckoROI? = null,
-    @SerialName("last_updated") val lastUpdated: String
+    @SerialName("last_updated") val lastUpdated: String,
+    @SerialName("sparkline_in_7d") val sparklineIn7d: CoinGeckoSparkline? = null
 )
+
+@Serializable data class CoinGeckoSparkline(val price: List<Double> = emptyList())

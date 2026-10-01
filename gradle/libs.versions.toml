@@ -13,6 +13,9 @@ ktor = "2.3.5"
 # Do not unify with the backend's `ktor` version.
 ktorClient = "3.5.2"
 composeMultiplatform = "1.12.0"
+# Material3 is versioned independently from the composeMultiplatform umbrella version above
+# (its latest stable release lags behind — 1.9.0 here vs 1.12.0 for runtime/foundation/ui).
+composeMaterial3 = "1.9.0"
 kotlinxSerializationOrbital = "1.7.3"
 kotlinxCoroutinesOrbital = "1.9.0"
 
@@ -58,6 +61,7 @@ ktor-serialization-kotlinx-json-orbital = { module = "io.ktor:ktor-serialization
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
 compose-material = { module = "org.jetbrains.compose.material:material", version.ref = "composeMultiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "composeMaterial3" }
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
 
 # Monitoring / logging
