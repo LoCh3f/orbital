@@ -1,22 +1,30 @@
 package io.orbital.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,21 +32,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.orbital.app.data.MarketPrice
-import kotlin.math.abs
-import kotlin.math.pow
-import kotlin.math.roundToLong
 
-private const val POSITIVE_CHANGE_ARGB = 0xFF2E7D32L
-private const val NEGATIVE_CHANGE_ARGB = 0xFFC62828L
-private val POSITIVE_CHANGE_COLOR = Color(POSITIVE_CHANGE_ARGB)
-private val NEGATIVE_CHANGE_COLOR = Color(NEGATIVE_CHANGE_ARGB)
-private const val TRILLION = 1_000_000_000_000.0
-private const val BILLION = 1_000_000_000.0
-private const val MILLION = 1_000_000.0
-private const val THOUSANDS_GROUP_SIZE = 3
+private val CARD_SHAPE = RoundedCornerShape(12.dp)
+private val BADGE_SHAPE = RoundedCornerShape(4.dp)
+private val FIELD_SHAPE = RoundedCornerShape(12.dp)
+private val AVATAR_SIZE = 36.dp
+private const val AVATAR_SYMBOL_MAX_CHARS = 3
+private val SPARKLINE_WIDTH = 64.dp
+private val SPARKLINE_HEIGHT = 28.dp
+private val DETAIL_CHART_HEIGHT = 200.dp
 
 @Composable
 fun marketScreen(
@@ -48,17 +59,19 @@ fun marketScreen(
     onRefresh: () -> Unit
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
-    OutlinedTextField(
+    TextField(
         value = searchQuery,
         onValueChange = onSearchQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        label = { Text("Search coins") },
-        singleLine = true)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        placeholder = { Text("Search ticker or protocol...") },
+        singleLine = true,
+        shape = FIELD_SHAPE,
+        colors = marketSearchFieldColors())
 
     when (state) {
       is UiState.Loading -> {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          CircularProgressIndicator()
+          CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
       }
       is UiState.Error -> {
@@ -66,20 +79,37 @@ fun marketScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally) {
-              Text("Unable to load market data: ${state.message}")
+              Text(
+                  "Unable to load market data: ${state.message}",
+                  color = MaterialTheme.colorScheme.onSurfaceVariant)
               Button(onClick = onRefresh) { Text("Retry") }
             }
       }
       is UiState.Success -> {
         val filtered = filterCoins(state.data, searchQuery)
         LazyColumn(
-            modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
               items(filtered) { coin -> coinPriceRow(coin) }
             }
       }
     }
   }
 }
+
+@Composable
+private fun marketSearchFieldColors() =
+    TextFieldDefaults.colors(
+        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        focusedIndicatorColor = Color.Transparent,
+        unfocusedIndicatorColor = Color.Transparent,
+        cursorColor = MaterialTheme.colorScheme.primary,
+        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant)
 
 private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPrice> {
   if (query.isBlank()) return coins
@@ -93,85 +123,139 @@ private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPri
 private fun coinPriceRow(coin: MarketPrice) {
   var expanded by remember { mutableStateOf(false) }
   Card(
-      modifier =
-          Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable {
-            expanded = !expanded
-          }) {
+      modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+      shape = CARD_SHAPE,
+      colors =
+          CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-          Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                  Text(coin.symbol)
-                  Text(coin.name)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                  Text(formatUsd(coin.currentPriceUsd))
-                  Text(
-                      formatPercent(coin.priceChangePercent24h),
-                      color =
-                          if (coin.priceChangePercent24h >= 0) POSITIVE_CHANGE_COLOR
-                          else NEGATIVE_CHANGE_COLOR)
-                  Text(formatCompactUsd(coin.marketCapUsd))
-                }
-              }
-          if (expanded) {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                  Text("24h volume: ${formatCompactUsd(coin.volume24hUsd)}")
-                  Text("Updated: ${coin.lastUpdated}")
-                }
-          }
+          coinSummaryRow(coin)
+          if (expanded) coinExpandedDetails(coin)
         }
       }
 }
 
-// java.util.Formatter-backed String.format is JVM-only, so numbers are formatted
-// manually here to keep this shared across the desktop and wasmJs targets.
-private fun Double.toFixedString(decimals: Int): String {
-  val factor = 10.0.pow(decimals)
-  val roundedTotal = (abs(this) * factor).roundToLong()
-  val factorLong = factor.toLong()
-  val wholePart = roundedTotal / factorLong
-  val fracPart = (roundedTotal % factorLong).toString().padStart(decimals, '0')
-  val sign = if (this < 0) "-" else ""
-  return "$sign$wholePart.$fracPart"
+@Composable
+private fun coinSummaryRow(coin: MarketPrice) {
+  Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+          coinAvatar(coin.symbol, coin.logoUrl)
+          Column(modifier = Modifier.padding(start = 8.dp)) {
+            Text(
+                coin.symbol,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp)
+            Text(
+                coin.name,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+          }
+        }
+        if (coin.sparklineIn7d.size >= 2) {
+          priceChart(
+              modifier = Modifier,
+              points = coin.sparklineIn7d,
+              positive = coin.priceChangePercent24h >= 0,
+              size = DpSize(SPARKLINE_WIDTH, SPARKLINE_HEIGHT))
+        }
+        Column(horizontalAlignment = Alignment.End) {
+          Text(
+              formatUsd(coin.currentPriceUsd),
+              color = MaterialTheme.colorScheme.onSurface,
+              fontFamily = FontFamily.Monospace,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 14.sp)
+          deltaBadge(coin.priceChangePercent24h)
+          Text(
+              formatCompactUsd(coin.marketCapUsd),
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontFamily = FontFamily.Monospace,
+              fontSize = 11.sp)
+        }
+      }
 }
 
-private fun groupThousands(value: Long): String {
-  val digits = value.toString()
-  val grouped = StringBuilder()
-  for ((index, digit) in digits.withIndex()) {
-    val remaining = digits.length - index
-    if (index > 0 && remaining % THOUSANDS_GROUP_SIZE == 0) grouped.append(',')
-    grouped.append(digit)
+@Composable
+private fun coinExpandedDetails(coin: MarketPrice) {
+  HorizontalDivider(
+      modifier = Modifier.padding(vertical = 8.dp),
+      color = MaterialTheme.colorScheme.outlineVariant)
+  if (coin.sparklineIn7d.size >= 2) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+      priceChart(
+          modifier = Modifier,
+          points = coin.sparklineIn7d,
+          positive = coin.priceChangePercent24h >= 0,
+          size = DpSize(maxWidth, DETAIL_CHART_HEIGHT),
+          interactive = true)
+    }
   }
-  return grouped.toString()
-}
-
-private fun formatUsd(value: Double): String {
-  val fixed = value.toFixedString(2)
-  val negative = fixed.startsWith("-")
-  val unsigned = if (negative) fixed.substring(1) else fixed
-  val dotIndex = unsigned.indexOf('.')
-  val wholePart = groupThousands(unsigned.substring(0, dotIndex).toLong())
-  val fracPart = unsigned.substring(dotIndex + 1)
-  return (if (negative) "-$" else "$") + "$wholePart.$fracPart"
-}
-
-private fun formatPercent(value: Double): String {
-  val fixed = value.toFixedString(2)
-  return if (value >= 0) "+$fixed%" else "$fixed%"
-}
-
-private fun formatCompactUsd(value: Double): String {
-  val magnitude = abs(value)
-  return when {
-    magnitude >= TRILLION -> "$" + (value / TRILLION).toFixedString(2) + "T"
-    magnitude >= BILLION -> "$" + (value / BILLION).toFixedString(2) + "B"
-    magnitude >= MILLION -> "$" + (value / MILLION).toFixedString(2) + "M"
-    else -> formatUsd(value)
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text(
+        "24h volume: ${formatCompactUsd(coin.volume24hUsd)}",
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 12.sp)
+    Text(
+        "Updated: ${coin.lastUpdated}",
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 12.sp)
   }
+}
+
+@Composable
+private fun coinAvatar(symbol: String, logoUrl: String) {
+  var logoLoaded by remember(logoUrl) { mutableStateOf(false) }
+  Box(
+      modifier =
+          Modifier.size(AVATAR_SIZE)
+              .clip(CircleShape)
+              .background(MaterialTheme.colorScheme.surfaceContainer),
+      contentAlignment = Alignment.Center) {
+        if (!logoLoaded) {
+          Text(
+              symbol.take(AVATAR_SYMBOL_MAX_CHARS),
+              color = MaterialTheme.colorScheme.primary,
+              fontFamily = FontFamily.Monospace,
+              fontWeight = FontWeight.Bold,
+              fontSize = 11.sp)
+        }
+        if (logoUrl.isNotBlank()) {
+          coinLogoImage(
+              modifier = Modifier.size(AVATAR_SIZE).clip(CircleShape),
+              url = logoUrl,
+              onResult = { success -> logoLoaded = success })
+        }
+      }
+}
+
+@Composable
+private fun deltaBadge(changePercent: Double) {
+  val positive = changePercent >= 0
+  val containerColor =
+      if (positive) MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
+      else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+  val contentColor =
+      if (positive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+  Row(
+      modifier =
+          Modifier.padding(top = 2.dp, bottom = 2.dp)
+              .clip(BADGE_SHAPE)
+              .background(containerColor)
+              .padding(horizontal = 4.dp, vertical = 1.dp),
+      verticalAlignment = Alignment.CenterVertically) {
+        val arrow = if (positive) "▲" else "▼"
+        Text(
+            "$arrow ${formatPercent(changePercent)}",
+            color = contentColor,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp)
+      }
 }
