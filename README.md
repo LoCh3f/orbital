@@ -46,7 +46,7 @@ The gateway reads a few optional environment variables, none of which `docker-co
 ./gradlew :orbital-app:wasmJsBrowserDevelopmentRun   # web, dev server + browser tab
 ```
 
-A build of the web app is deployed automatically on every release to **https://loch3f.github.io/orbital/** — since no backend is hosted publicly, it'll only show live data if you have `make up` running locally on the machine you're viewing it from.
+A **market-only demo** build is deployed automatically on every release to **https://loch3f.github.io/orbital/** — it fetches live data directly from CoinGecko's public API (no key, no backend) via a separate build flavor of the same wasmJs target (`-PorbitalDemoBuild=true`, see `.github/workflows/deploy-web.yml`). There's no News tab in this build, since there's no backend to serve it from. Running `./gradlew :orbital-app:wasmJsBrowserDevelopmentRun` locally (no flag) still builds the full app — Market + News, backend-connected via `make up` — exactly as before.
 
 ## 📖 API Docs
 
