@@ -53,8 +53,10 @@ private data class CoinGeckoDto(
     val name: String,
     val image: String,
     @SerialName("current_price") val currentPrice: Double,
-    @SerialName("market_cap") val marketCap: Long,
-    @SerialName("total_volume") val totalVolume: Long,
+    // CoinGecko sends these as integers for most coins but as floats (e.g. 0.0) for very
+    // low-cap/low-volume ones — Double avoids a strict-Long decode failure on that fractional form.
+    @SerialName("market_cap") val marketCap: Double,
+    @SerialName("total_volume") val totalVolume: Double,
     @SerialName("price_change_percentage_24h") val priceChangePercentage24h: Double? = null,
     @SerialName("last_updated") val lastUpdated: String,
     @SerialName("sparkline_in_7d") val sparklineIn7d: CoinGeckoSparklineDto? = null
@@ -68,8 +70,8 @@ private fun CoinGeckoDto.toMarketPrice() =
         symbol = symbol.uppercase(),
         name = name,
         currentPriceUsd = currentPrice,
-        marketCapUsd = marketCap.toDouble(),
-        volume24hUsd = totalVolume.toDouble(),
+        marketCapUsd = marketCap,
+        volume24hUsd = totalVolume,
         priceChangePercent24h = priceChangePercentage24h ?: 0.0,
         lastUpdated = lastUpdated,
         sparklineIn7d = sparklineIn7d?.price.orEmpty(),
