@@ -65,6 +65,35 @@ class CoinGeckoMarketApiClientTest {
   }
 
   @Test
+  fun `fetchMarketPrices accepts a fractional total_volume value`() = runTest {
+    // CoinGecko sends total_volume as a float (e.g. 0.0) for very low-volume coins instead of an
+    // integer — this reproduces a real production error where that broke strict Long decoding.
+    val jsonWithFractionalVolume =
+        """[{"id":"bitcoin","symbol":"btc","name":"Bitcoin","image":"https://example.com/btc.png",
+        "current_price":65000.0,"market_cap":1000000,"total_volume":0.0,
+        "last_updated":"2024-01-01T00:00:00Z"}]"""
+
+    val btc =
+        clientReturning(HttpStatusCode.OK, jsonWithFractionalVolume).fetchMarketPrices().first()
+
+    assertEquals(0.0, btc.volume24hUsd)
+  }
+
+  @Test
+  fun `fetchMarketPrices accepts a fractional market_cap value`() = runTest {
+    // Same wire-format risk as total_volume above: CoinGecko can send market_cap as a float too.
+    val jsonWithFractionalMarketCap =
+        """[{"id":"bitcoin","symbol":"btc","name":"Bitcoin","image":"https://example.com/btc.png",
+        "current_price":65000.0,"market_cap":2406243294.5,"total_volume":500000,
+        "last_updated":"2024-01-01T00:00:00Z"}]"""
+
+    val btc =
+        clientReturning(HttpStatusCode.OK, jsonWithFractionalMarketCap).fetchMarketPrices().first()
+
+    assertEquals(2406243294.5, btc.marketCapUsd)
+  }
+
+  @Test
   fun `fetchMarketPrices throws on a non-2xx response even with a well-formed body`() = runTest {
     // "[]" is a valid, empty CoinGecko response shape — this proves the client checks the HTTP
     // status itself rather than relying on a malformed body to accidentally fail deserialization.
