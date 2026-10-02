@@ -26,9 +26,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,9 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.orbital.app.data.MarketPrice
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 private val CARD_SHAPE = RoundedCornerShape(12.dp)
 private val BADGE_SHAPE = RoundedCornerShape(4.dp)
@@ -50,6 +55,45 @@ private const val AVATAR_SYMBOL_MAX_CHARS = 3
 private val SPARKLINE_WIDTH = 64.dp
 private val SPARKLINE_HEIGHT = 28.dp
 private val DETAIL_CHART_HEIGHT = 200.dp
+private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
+
+/**
+ * Owns the market-data polling loop (every [MARKET_REFRESH_INTERVAL_MS]), the search-query state,
+ * and [UiState] management around [marketScreen] — a refresh failure preserves the last successful
+ * value instead of clearing the screen. [fetchMarketPrices] is the only thing that varies between
+ * callers: the full app polls the gateway via `MarketApiClient`, the backend-free demo build polls
+ * CoinGecko directly via `CoinGeckoMarketApiClient`.
+ */
+@Composable
+fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>) {
+  var state by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
+  var searchQuery by remember { mutableStateOf("") }
+  val scope = rememberCoroutineScope()
+
+  suspend fun refresh() {
+    runCatching { fetchMarketPrices() }
+        .onSuccess { state = UiState.Success(it) }
+        .onFailure { error ->
+          val previous = state
+          state =
+              if (previous is UiState.Success) previous
+              else UiState.Error(error.message ?: "Unknown error")
+        }
+  }
+
+  LaunchedEffect(Unit) {
+    while (isActive) {
+      refresh()
+      delay(MARKET_REFRESH_INTERVAL_MS)
+    }
+  }
+
+  marketScreen(
+      state = state,
+      searchQuery = searchQuery,
+      onSearchQueryChange = { searchQuery = it },
+      onRefresh = { scope.launch { refresh() } })
+}
 
 @Composable
 fun marketScreen(
