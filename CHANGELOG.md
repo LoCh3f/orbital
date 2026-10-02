@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.2.0](https://github.com/LoCh3f/orbital/compare/v1.1.0...v1.2.0) (2026-10-02)
+
+
+### Features
+
+* **app:** add a CoinGecko-direct market data client for the demo build ([c5dfa98](https://github.com/LoCh3f/orbital/commit/c5dfa98c6da98776adb4569835fe45f72c1b0527))
+* **app:** add the market-only demo app composable ([0acf241](https://github.com/LoCh3f/orbital/commit/0acf2419897bd018e79fc3ccc14dfa8d7cdc68b1))
+* **app:** wire a -PorbitalDemoBuild flag to select the demo app at compile time ([af55a01](https://github.com/LoCh3f/orbital/commit/af55a01a3c3efff3b69ce9647e8f70f1f46256bf))
+* **gateway:** harden proxy cache with Redis-resilient reads and bounded in-memory fallback ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **gateway:** make rate limiter proxy-aware and opt-in only ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+
+
+### Bug Fixes
+
+* address final whole-branch review findings ([0f7723d](https://github.com/LoCh3f/orbital/commit/0f7723d1e10fd0b62e7097e3d464b3b739f7855a))
+* address final whole-branch review findings ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **docker:** install curl in runtime stages for healthchecks ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **market-service:** fetch requested coins by id instead of filtering top-N ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **news-service:** guard Redis cache read with try/catch fallback ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **orbital-app:** make coin-logo cache thread-safe ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+* **persistence:** log swallowed per-row persistence failures ([a2a75d8](https://github.com/LoCh3f/orbital/commit/a2a75d82b0dad3a2e2401d7bcbc54a28da87010e))
+
 ## [1.1.0](https://github.com/LoCh3f/orbital/compare/v1.0.2...v1.1.0) (2026-10-01)
 
 
