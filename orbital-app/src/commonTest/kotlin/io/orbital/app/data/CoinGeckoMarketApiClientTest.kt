@@ -65,9 +65,11 @@ class CoinGeckoMarketApiClientTest {
   }
 
   @Test
-  fun `fetchMarketPrices throws on a non-2xx response instead of returning garbage`() = runTest {
+  fun `fetchMarketPrices throws on a non-2xx response even with a well-formed body`() = runTest {
+    // "[]" is a valid, empty CoinGecko response shape — this proves the client checks the HTTP
+    // status itself rather than relying on a malformed body to accidentally fail deserialization.
     assertFailsWith<Exception> {
-      clientReturning(HttpStatusCode.TooManyRequests, "{}").fetchMarketPrices()
+      clientReturning(HttpStatusCode.TooManyRequests, "[]").fetchMarketPrices()
     }
   }
 }

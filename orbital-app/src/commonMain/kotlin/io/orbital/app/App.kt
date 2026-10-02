@@ -85,18 +85,21 @@ fun orbitalApp() {
   MaterialTheme(colorScheme = ORBITAL_DARK_COLOR_SCHEME) {
     Scaffold(topBar = { orbitalTopBar(selectedSection) { selectedSection = it } }) { padding ->
       Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        when (selectedSection) {
-          Section.MARKET -> marketSection(fetchMarketPrices = marketApiClient::fetchMarketPrices)
-          Section.NEWS ->
-              newsScreen(
-                  newsState,
-                  filters =
-                      NewsFilters(
-                          category = selectedNewsCategory,
-                          onCategoryChange = { selectedNewsCategory = it },
-                          query = newsSearchQuery,
-                          onQueryChange = { newsSearchQuery = it }),
-                  onRefresh = { scope.launch { refreshNews() } })
+        // marketSection is composed unconditionally (not inside this `when`) so its remembered
+        // search text and polling state survive switching to News and back — see its doc comment.
+        marketSection(
+            fetchMarketPrices = marketApiClient::fetchMarketPrices,
+            visible = selectedSection == Section.MARKET)
+        if (selectedSection == Section.NEWS) {
+          newsScreen(
+              newsState,
+              filters =
+                  NewsFilters(
+                      category = selectedNewsCategory,
+                      onCategoryChange = { selectedNewsCategory = it },
+                      query = newsSearchQuery,
+                      onQueryChange = { newsSearchQuery = it }),
+              onRefresh = { scope.launch { refreshNews() } })
         }
       }
     }

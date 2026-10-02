@@ -4,6 +4,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -17,18 +20,27 @@ private const val TOP_N_COINS = 100
  * the full app uses [MarketApiClient] against the gateway instead.
  */
 class CoinGeckoMarketApiClient(private val client: HttpClient = createHttpClient()) {
-  suspend fun fetchMarketPrices(): List<MarketPrice> =
-      client
-          .get("$COINGECKO_BASE_URL/coins/markets") {
-            parameter("vs_currency", "usd")
-            parameter("order", "market_cap_desc")
-            parameter("per_page", TOP_N_COINS)
-            parameter("page", 1)
-            parameter("sparkline", true)
-            parameter("price_change_percentage", "24h")
+  suspend fun fetchMarketPrices(): List<MarketPrice> {
+    val response: HttpResponse =
+        client.get("$COINGECKO_BASE_URL/coins/markets") {
+          parameter("vs_currency", "usd")
+          parameter("order", "market_cap_desc")
+          parameter("per_page", TOP_N_COINS)
+          parameter("page", 1)
+          parameter("sparkline", true)
+          parameter("price_change_percentage", "24h")
+        }
+    if (!response.status.isSuccess()) {
+      val reason =
+          if (response.status == HttpStatusCode.TooManyRequests) {
+            "CoinGecko rate limit reached — try again shortly"
+          } else {
+            "CoinGecko returned ${response.status}"
           }
-          .body<List<CoinGeckoDto>>()
-          .map { it.toMarketPrice() }
+      throw IllegalStateException(reason)
+    }
+    return response.body<List<CoinGeckoDto>>().map { it.toMarketPrice() }
+  }
 }
 
 // Mirrors the subset of CoinGecko's `/coins/markets` wire shape this client needs. See

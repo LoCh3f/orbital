@@ -1,3 +1,4 @@
+import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
@@ -38,6 +39,9 @@ kotlin {
         outputModuleName.set("orbitalApp")
         browser {
             commonWebpackConfig { outputFileName = "orbitalApp.js" }
+            testTask {
+                useKarma { useChromeHeadless() }
+            }
         }
         binaries.executable()
     }
@@ -72,7 +76,12 @@ kotlin {
                 implementation(libs.ktor.client.cio.orbital)
             }
         }
-        val desktopTest by getting { dependencies { implementation(kotlin("test")) } }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                @OptIn(ExperimentalComposeLibrary::class) implementation(compose.uiTest)
+            }
+        }
         val wasmJsMain by getting {
             kotlin.srcDir(generateDemoBuildConfig)
             dependencies { implementation(libs.ktor.client.js.orbital) }

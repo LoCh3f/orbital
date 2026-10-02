@@ -63,9 +63,15 @@ private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
  * value instead of clearing the screen. [fetchMarketPrices] is the only thing that varies between
  * callers: the full app polls the gateway via `MarketApiClient`, the backend-free demo build polls
  * CoinGecko directly via `CoinGeckoMarketApiClient`.
+ *
+ * Call this unconditionally (not from inside a tab's `when` branch) and control [visible] instead —
+ * composing it only while its tab is selected tears down and recreates its `remember`ed state
+ * (search text, last-loaded prices) on every tab switch, since Compose disposes a conditionally
+ * included branch's whole subtree. [visible] defaults to `true` for single-screen callers (e.g. the
+ * backend-free demo app) that have no tabs to switch away from.
  */
 @Composable
-fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>) {
+fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>, visible: Boolean = true) {
   var state by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
   var searchQuery by remember { mutableStateOf("") }
   val scope = rememberCoroutineScope()
@@ -88,11 +94,13 @@ fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>) {
     }
   }
 
-  marketScreen(
-      state = state,
-      searchQuery = searchQuery,
-      onSearchQueryChange = { searchQuery = it },
-      onRefresh = { scope.launch { refresh() } })
+  if (visible) {
+    marketScreen(
+        state = state,
+        searchQuery = searchQuery,
+        onSearchQueryChange = { searchQuery = it },
+        onRefresh = { scope.launch { refresh() } })
+  }
 }
 
 @Composable
