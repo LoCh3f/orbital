@@ -5,5 +5,7 @@ import androidx.compose.ui.window.ComposeViewport
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
-  ComposeViewport(viewportContainerId = "ComposeTarget") { orbitalApp() }
+  ComposeViewport(viewportContainerId = "ComposeTarget") {
+    if (IS_DEMO_BUILD) orbitalMarketDemoApp() else orbitalApp()
+  }
 }

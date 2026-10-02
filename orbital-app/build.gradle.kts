@@ -10,6 +10,26 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
+val orbitalDemoBuild = (project.findProperty("orbitalDemoBuild") as String?)?.toBoolean() ?: false
+
+val generateDemoBuildConfig by
+    tasks.registering {
+      val outputDir = layout.buildDirectory.dir("generated/demoBuildConfig/wasmJsMain/kotlin")
+      inputs.property("orbitalDemoBuild", orbitalDemoBuild)
+      outputs.dir(outputDir)
+      doLast {
+        val file = outputDir.get().file("io/orbital/app/BuildConfig.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            |package io.orbital.app
+            |
+            |internal const val IS_DEMO_BUILD: Boolean = $orbitalDemoBuild
+            |"""
+                .trimMargin())
+      }
+    }
+
 kotlin {
     jvm("desktop")
 
@@ -54,6 +74,7 @@ kotlin {
         }
         val desktopTest by getting { dependencies { implementation(kotlin("test")) } }
         val wasmJsMain by getting {
+            kotlin.srcDir(generateDemoBuildConfig)
             dependencies { implementation(libs.ktor.client.js.orbital) }
         }
     }
