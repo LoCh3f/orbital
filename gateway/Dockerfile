@@ -6,6 +6,7 @@ RUN chmod +x ./gradlew
 RUN ./gradlew :gateway:shadowJar -x test
 
 FROM eclipse-temurin:21-jre
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /application/gateway/build/libs/app.jar app.jar
 EXPOSE 8080

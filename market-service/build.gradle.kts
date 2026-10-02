@@ -28,4 +28,5 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.bundles.ktor.test)
+    testImplementation(libs.h2)
 }

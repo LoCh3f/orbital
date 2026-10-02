@@ -21,25 +21,38 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.JedisPool
 
+/** Minimal read/write cache abstraction so the Redis-backed lookup is swappable in tests. */
+internal interface NewsCache {
+  fun get(key: String): String?
+
+  fun setex(key: String, ttlSeconds: Int, value: String)
+}
+
+internal class RedisNewsCache(private val pool: JedisPool) : NewsCache {
+  override fun get(key: String): String? = pool.resource.use { it.get(key) }
+
+  override fun setex(key: String, ttlSeconds: Int, value: String) {
+    pool.resource.use { it.setex(key, ttlSeconds.toLong(), value) }
+  }
+}
+
+private fun defaultNewsCache(): NewsCache? =
+    System.getenv("REDIS_URL")?.let { RedisNewsCache(JedisPool(URI(it))) }
+
 /**
  * Registers `/health` and `GET /api/v1/news`. The news route resolves `?category=`
  * case-insensitively (defaulting to [NewsCategory.CRYPTO]), serves from a short-lived Redis cache
  * when available, and otherwise fetches via [newsApiClient] (currently always the mocked fallback —
  * see [NewsApiClient]), persisting the result to Postgres asynchronously and best-effort.
  */
-fun Application.configureRouting(
+internal fun Application.configureRouting(
     appScope: CoroutineScope,
-    newsApiClient: NewsApiClient = NewsApiClient()
+    newsApiClient: NewsApiClient = NewsApiClient(),
+    cache: NewsCache? = defaultNewsCache()
 ) {
-  // Redis cache (optional)
-  val redisUrl = System.getenv("REDIS_URL")
-  val jedisPool = redisUrl?.let { JedisPool(URI(it)) }
-
   val logger = LoggerFactory.getLogger("NewsRouting")
 
   routing {
-    get("/health") { call.respond(mapOf("status" to "healthy", "service" to "news")) }
-
     get("/api/v1/news") {
       val category = call.request.queryParameters["category"]
       val cacheKey = "news:category:${category ?: "all"}"
@@ -48,8 +61,13 @@ fun Application.configureRouting(
             NewsCategory.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
           } ?: NewsCategory.CRYPTO
 
-      // Try Redis cache first
-      val cached = jedisPool?.resource?.use { jedis -> jedis.get(cacheKey) }
+      val cached =
+          try {
+            cache?.get(cacheKey)
+          } catch (e: Exception) {
+            logger.warn("Cache read failed for key '$cacheKey', falling back to upstream fetch", e)
+            null
+          }
       if (!cached.isNullOrBlank()) {
         try {
           val cachedArticles =
@@ -73,7 +91,6 @@ fun Application.configureRouting(
 
       val payload = result.getOrThrow().map { NewsMapper.toDomain(it, requestedCategory) }
 
-      // Persist fetched news asynchronously (best-effort) using application scope
       appScope.launch {
         try {
           com.orbital.news.persistence.NewsRepository.saveAll(payload)
@@ -82,12 +99,9 @@ fun Application.configureRouting(
         }
       }
 
-      // Cache payload in Redis (short TTL)
       try {
-        jedisPool?.resource?.use { jedis ->
-          val json = Json.encodeToString(ListSerializer(NewsArticle.serializer()), payload)
-          jedis.setex(cacheKey, 60, json)
-        }
+        val json = Json.encodeToString(ListSerializer(NewsArticle.serializer()), payload)
+        cache?.setex(cacheKey, 60, json)
       } catch (e: Exception) {
         // best-effort cache
       }

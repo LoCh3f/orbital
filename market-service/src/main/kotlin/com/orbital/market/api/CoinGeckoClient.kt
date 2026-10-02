@@ -5,6 +5,9 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 
+/** CoinGecko's documented maximum `per_page` value for `/coins/markets`. */
+private const val MAX_PAGE_SIZE = 250
+
 /** Thin wrapper over CoinGecko's public `/coins/markets` endpoint. No API key required. */
 class CoinGeckoClient(private val client: HttpClient) {
   private val baseUrl = "https://api.coingecko.com/api/v3"
@@ -32,5 +35,19 @@ class CoinGeckoClient(private val client: HttpClient) {
           parameter("sparkline", false)
         }
     return response.body<List<CoinGeckoCryptoData>>().firstOrNull()
+  }
+
+  /** Fetches exactly the coins in [ids] (by CoinGecko id), regardless of market-cap rank. */
+  suspend fun getCryptosByIds(ids: List<String>): List<CoinGeckoCryptoData> {
+    if (ids.isEmpty()) return emptyList()
+    val response =
+        client.get("$baseUrl/coins/markets") {
+          parameter("vs_currency", "usd")
+          parameter("ids", ids.joinToString(","))
+          parameter("per_page", ids.size.coerceAtMost(MAX_PAGE_SIZE))
+          parameter("sparkline", true)
+          parameter("price_change_percentage", "24h")
+        }
+    return response.body()
   }
 }

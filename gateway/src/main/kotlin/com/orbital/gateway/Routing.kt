@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber")
+@file:Suppress("MagicNumber", "TooGenericExceptionCaught")
 
 package com.orbital.gateway
 
@@ -21,11 +21,13 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import org.slf4j.LoggerFactory
 import redis.clients.jedis.JedisPool
 
 private val MARKET_SERVICE_URL = System.getenv("MARKET_SERVICE_URL") ?: "http://127.0.0.1:8081"
 private val NEWS_SERVICE_URL = System.getenv("NEWS_SERVICE_URL") ?: "http://127.0.0.1:8082"
 private const val DEFAULT_CACHE_TTL = 60 // seconds
+private val logger = LoggerFactory.getLogger("GatewayRouting")
 
 /**
  * Minimal string cache abstraction the gateway proxies through, backed by [RedisCache] or
@@ -48,8 +50,15 @@ class RedisCache(private val pool: JedisPool) : Cache {
 
 private data class MemEntry(val value: String, val expiresAt: Long)
 
-/** In-process, TTL-expiring [Cache] used as a fallback when no `REDIS_URL` is configured. */
-class MemoryCache : Cache {
+private const val DEFAULT_MAX_ENTRIES = 1000
+
+/**
+ * In-process, TTL-expiring [Cache] used as a fallback when no `REDIS_URL` is configured. Bounded at
+ * [maxEntries] — once full, expired entries are swept first, then the single soonest-to-expire
+ * entry is evicted to make room, so an attacker (or just many distinct query params) can't grow
+ * this map without bound.
+ */
+class MemoryCache(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) : Cache {
   private val map = ConcurrentHashMap<String, MemEntry>()
 
   override fun get(key: String): String? {
@@ -62,9 +71,17 @@ class MemoryCache : Cache {
   }
 
   override fun setex(key: String, ttlSeconds: Int, value: String) {
-    val expires = System.currentTimeMillis() + ttlSeconds * 1000L
-    map[key] = MemEntry(value, expires)
+    val now = System.currentTimeMillis()
+    if (map.size >= maxEntries && !map.containsKey(key)) {
+      map.entries.removeAll { it.value.expiresAt <= now }
+      if (map.size >= maxEntries) {
+        map.keys.minByOrNull { k -> map[k]?.expiresAt ?: 0L }?.let { map.remove(it) }
+      }
+    }
+    map[key] = MemEntry(value, now + ttlSeconds * 1000L)
   }
+
+  internal fun size(): Int = map.size
 }
 
 /**
@@ -78,9 +95,14 @@ suspend fun proxyWithCache(
     ttlSeconds: Int = DEFAULT_CACHE_TTL,
     block: suspend () -> Pair<HttpStatusCode, String>
 ): Pair<HttpStatusCode, String> {
-  // Try cached entry
-  cache?.get(cacheKey)?.let { raw ->
-    // stored format: statusCode '\n' body
+  val cached =
+      try {
+        cache?.get(cacheKey)
+      } catch (e: Exception) {
+        logger.warn("Cache read failed for key '$cacheKey', falling back to upstream fetch", e)
+        null
+      }
+  cached?.let { raw ->
     val idx = raw.indexOf('\n')
     if (idx > 0) {
       val statusCode = raw.substring(0, idx).toIntOrNull() ?: 200
@@ -90,7 +112,6 @@ suspend fun proxyWithCache(
   }
 
   val (status, body) = block()
-  // Cache successful responses
   if (status.value in 200..299) {
     try {
       val toStore = "${status.value}\n$body"
@@ -108,12 +129,10 @@ suspend fun proxyWithCache(
  * for cross-service log correlation. Prefers Redis for the cache if `REDIS_URL` is set, otherwise
  * falls back to an in-process [MemoryCache].
  */
-fun Application.configureRouting(client: HttpClient = HttpClient(CIO)) {
-  // Init cache: prefer Redis if REDIS_URL provided
-  val redisUrl = System.getenv("REDIS_URL")
-  val jedisPool = redisUrl?.let { JedisPool(URI(it)) }
-  val cache: Cache? = jedisPool?.let { RedisCache(it) } ?: MemoryCache()
-
+fun Application.configureRouting(
+    client: HttpClient = HttpClient(CIO),
+    cache: Cache? = defaultCache()
+) {
   routing {
     get("/") { call.respond(mapOf("message" to "Orbital Gateway API")) }
 
@@ -153,4 +172,10 @@ fun Application.configureRouting(client: HttpClient = HttpClient(CIO)) {
       call.respondText(body, contentType = ContentType.Application.Json, status = status)
     }
   }
+}
+
+private fun defaultCache(): Cache? {
+  val redisUrl = System.getenv("REDIS_URL")
+  val jedisPool = redisUrl?.let { JedisPool(URI(it)) }
+  return jedisPool?.let { RedisCache(it) } ?: MemoryCache()
 }

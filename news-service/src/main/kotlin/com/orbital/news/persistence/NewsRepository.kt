@@ -13,6 +13,7 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.slf4j.LoggerFactory
 
 /**
  * Append-only log of fetched articles — [NewsMapper] assigns a fresh id per fetch, so repeated
@@ -31,6 +32,8 @@ object NewsTable : Table("news") {
 
 /** Exposed/HikariCP-backed persistence for [NewsTable]. */
 object NewsRepository {
+  private val logger = LoggerFactory.getLogger("NewsRepository")
+
   /** Connects to Postgres and creates [NewsTable] if it doesn't already exist. */
   fun initDatabase(jdbcUrl: String, user: String, password: String) {
     val config =
@@ -48,8 +51,11 @@ object NewsRepository {
   }
 
   /**
-   * Inserts one row per article. Per-row failures (e.g. constraint issues) are swallowed, not
-   * thrown.
+   * Inserts one row per article inside a single transaction, catching and logging (never throwing)
+   * any per-row failure. On H2 (used in tests), execution continues past a failed statement; on
+   * Postgres, a failed insert aborts the whole surrounding transaction, so in production a single
+   * bad row can take the rest of the batch down with it — the caller's own catch still prevents
+   * this from failing the response, but rows are not independently committed.
    */
   suspend fun saveAll(articles: List<NewsArticle>) =
       withContext(Dispatchers.IO) {
@@ -67,7 +73,7 @@ object NewsRepository {
                 it[category] = a.category.name
               }
             } catch (e: Exception) {
-              // ignore duplicate or constraint issues
+              logger.warn("Failed to persist article id='$id' sourceName='${a.sourceName}'", e)
             }
           }
         }

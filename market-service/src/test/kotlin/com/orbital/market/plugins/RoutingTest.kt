@@ -28,6 +28,11 @@ private const val VALID_COIN_JSON =
     "current_price":65000.0,"market_cap":1000000,"market_cap_rank":1,"total_volume":500000,
     "price_change_percentage_24h":2.35,"last_updated":"2024-01-01T00:00:00Z"}]"""
 
+private const val DOGE_JSON =
+    """[{"id":"dogecoin","symbol":"doge","name":"Dogecoin","image":"https://example.com/doge.png",
+    "current_price":0.15,"market_cap":20000000,"market_cap_rank":25,"total_volume":100000,
+    "price_change_percentage_24h":-1.2,"last_updated":"2024-01-01T00:00:00Z"}]"""
+
 private fun coinGeckoClient(responseBody: () -> String) =
     CoinGeckoClient(
         HttpClient(
@@ -83,5 +88,65 @@ class RoutingTest {
     }
     val response = client.get("/api/v1/market/prices")
     assertEquals(HttpStatusCode.InternalServerError, response.status)
+  }
+
+  @Test
+  fun `prices route returns a coin outside the top-N list when requested by id`() =
+      testApplication {
+        val mockCoinGeckoClient =
+            CoinGeckoClient(
+                HttpClient(
+                    MockEngine { request ->
+                      val ids = request.url.parameters["ids"]
+                      respond(
+                          content = if (ids == "dogecoin") DOGE_JSON else VALID_COIN_JSON,
+                          status = HttpStatusCode.OK,
+                          headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                    }) {
+                      install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                    })
+        application {
+          configureSerialization()
+          configureRouting(TEST_SCOPE, mockCoinGeckoClient)
+        }
+
+        val response = client.get("/api/v1/market/prices?coinIds=dogecoin")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(response.bodyAsText().contains("\"DOGE\""))
+      }
+
+  @Test
+  fun `prices route returns multiple requested coins together`() = testApplication {
+    val bothJson =
+        """[{"id":"bitcoin","symbol":"btc","name":"Bitcoin","image":"https://example.com/btc.png",
+        "current_price":65000.0,"market_cap":1000000,"market_cap_rank":1,"total_volume":500000,
+        "price_change_percentage_24h":2.35,"last_updated":"2024-01-01T00:00:00Z"},
+        {"id":"dogecoin","symbol":"doge","name":"Dogecoin","image":"https://example.com/doge.png",
+        "current_price":0.15,"market_cap":20000000,"market_cap_rank":25,"total_volume":100000,
+        "price_change_percentage_24h":-1.2,"last_updated":"2024-01-01T00:00:00Z"}]"""
+    val mockCoinGeckoClient =
+        CoinGeckoClient(
+            HttpClient(
+                MockEngine { request ->
+                  val ids = request.url.parameters["ids"]
+                  respond(
+                      content = if (ids == "bitcoin,dogecoin") bothJson else "[]",
+                      status = HttpStatusCode.OK,
+                      headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }) {
+                  install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                })
+    application {
+      configureSerialization()
+      configureRouting(TEST_SCOPE, mockCoinGeckoClient)
+    }
+
+    val response = client.get("/api/v1/market/prices?coinIds=bitcoin,dogecoin")
+
+    assertEquals(HttpStatusCode.OK, response.status)
+    val body = response.bodyAsText()
+    assertTrue(body.contains("\"BTC\""))
+    assertTrue(body.contains("\"DOGE\""))
   }
 }
