@@ -37,6 +37,15 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.core.orbital)
             }
         }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test.orbital)
+                implementation(libs.ktor.client.mock.orbital)
+                implementation(libs.ktor.client.content.negotiation.orbital)
+                implementation(libs.ktor.serialization.kotlinx.json.orbital)
+            }
+        }
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
