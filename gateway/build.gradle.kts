@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.cors)
     implementation(libs.ktor.server.rate.limit)
+    implementation(libs.ktor.server.forwarded.header)
 
     // Redis client (Jedis)
     implementation(libs.jedis)

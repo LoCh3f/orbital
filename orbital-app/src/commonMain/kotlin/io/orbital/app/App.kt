@@ -25,7 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.orbital.app.data.MarketApiClient
-import io.orbital.app.data.MarketPrice
 import io.orbital.app.data.NewsApiClient
 import io.orbital.app.data.NewsItem
 import io.orbital.app.data.createHttpClient
@@ -34,7 +33,7 @@ import io.orbital.app.ui.NewsFilters
 import io.orbital.app.ui.ORBITAL_DARK_COLOR_SCHEME
 import io.orbital.app.ui.UiState
 import io.orbital.app.ui.marketIcon
-import io.orbital.app.ui.marketScreen
+import io.orbital.app.ui.marketSection
 import io.orbital.app.ui.newsIcon
 import io.orbital.app.ui.newsScreen
 import io.orbital.app.ui.orbitalLogoMark
@@ -42,7 +41,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 private const val NEWS_REFRESH_INTERVAL_MS = 60_000L
 private val LOGO_SIZE = 28.dp
 
@@ -61,22 +59,9 @@ fun orbitalApp() {
   val scope = rememberCoroutineScope()
 
   var selectedSection by remember { mutableStateOf(Section.MARKET) }
-  var marketState by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
   var newsState by remember { mutableStateOf<UiState<List<NewsItem>>>(UiState.Loading) }
-  var marketSearchQuery by remember { mutableStateOf("") }
   var newsSearchQuery by remember { mutableStateOf("") }
   var selectedNewsCategory by remember { mutableStateOf<String?>(null) }
-
-  suspend fun refreshMarket() {
-    runCatching { marketApiClient.fetchMarketPrices() }
-        .onSuccess { marketState = UiState.Success(it) }
-        .onFailure { error ->
-          val previous = marketState
-          marketState =
-              if (previous is UiState.Success) previous
-              else UiState.Error(error.message ?: "Unknown error")
-        }
-  }
 
   suspend fun refreshNews() {
     runCatching { newsApiClient.fetchNews(selectedNewsCategory) }
@@ -87,13 +72,6 @@ fun orbitalApp() {
               if (previous is UiState.Success) previous
               else UiState.Error(error.message ?: "Unknown error")
         }
-  }
-
-  LaunchedEffect(Unit) {
-    while (isActive) {
-      refreshMarket()
-      delay(MARKET_REFRESH_INTERVAL_MS)
-    }
   }
 
   LaunchedEffect(selectedNewsCategory) {
@@ -107,23 +85,21 @@ fun orbitalApp() {
   MaterialTheme(colorScheme = ORBITAL_DARK_COLOR_SCHEME) {
     Scaffold(topBar = { orbitalTopBar(selectedSection) { selectedSection = it } }) { padding ->
       Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        when (selectedSection) {
-          Section.MARKET ->
-              marketScreen(
-                  marketState,
-                  searchQuery = marketSearchQuery,
-                  onSearchQueryChange = { marketSearchQuery = it },
-                  onRefresh = { scope.launch { refreshMarket() } })
-          Section.NEWS ->
-              newsScreen(
-                  newsState,
-                  filters =
-                      NewsFilters(
-                          category = selectedNewsCategory,
-                          onCategoryChange = { selectedNewsCategory = it },
-                          query = newsSearchQuery,
-                          onQueryChange = { newsSearchQuery = it }),
-                  onRefresh = { scope.launch { refreshNews() } })
+        // marketSection is composed unconditionally (not inside this `when`) so its remembered
+        // search text and polling state survive switching to News and back — see its doc comment.
+        marketSection(
+            fetchMarketPrices = marketApiClient::fetchMarketPrices,
+            visible = selectedSection == Section.MARKET)
+        if (selectedSection == Section.NEWS) {
+          newsScreen(
+              newsState,
+              filters =
+                  NewsFilters(
+                      category = selectedNewsCategory,
+                      onCategoryChange = { selectedNewsCategory = it },
+                      query = newsSearchQuery,
+                      onQueryChange = { newsSearchQuery = it }),
+              onRefresh = { scope.launch { refreshNews() } })
         }
       }
     }

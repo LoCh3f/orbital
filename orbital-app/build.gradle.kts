@@ -1,3 +1,4 @@
+import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
@@ -10,6 +11,26 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
+val orbitalDemoBuild = (project.findProperty("orbitalDemoBuild") as String?)?.toBoolean() ?: false
+
+val generateDemoBuildConfig by
+    tasks.registering {
+      val outputDir = layout.buildDirectory.dir("generated/demoBuildConfig/wasmJsMain/kotlin")
+      inputs.property("orbitalDemoBuild", orbitalDemoBuild)
+      outputs.dir(outputDir)
+      doLast {
+        val file = outputDir.get().file("io/orbital/app/BuildConfig.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            |package io.orbital.app
+            |
+            |internal const val IS_DEMO_BUILD: Boolean = $orbitalDemoBuild
+            |"""
+                .trimMargin())
+      }
+    }
+
 kotlin {
     jvm("desktop")
 
@@ -18,6 +39,9 @@ kotlin {
         outputModuleName.set("orbitalApp")
         browser {
             commonWebpackConfig { outputFileName = "orbitalApp.js" }
+            testTask {
+                useKarma { useChromeHeadless() }
+            }
         }
         binaries.executable()
     }
@@ -37,13 +61,29 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.core.orbital)
             }
         }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test.orbital)
+                implementation(libs.ktor.client.mock.orbital)
+                implementation(libs.ktor.client.content.negotiation.orbital)
+                implementation(libs.ktor.serialization.kotlinx.json.orbital)
+            }
+        }
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation(libs.ktor.client.cio.orbital)
             }
         }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                @OptIn(ExperimentalComposeLibrary::class) implementation(compose.uiTest)
+            }
+        }
         val wasmJsMain by getting {
+            kotlin.srcDir(generateDemoBuildConfig)
             dependencies { implementation(libs.ktor.client.js.orbital) }
         }
     }

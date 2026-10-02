@@ -13,6 +13,7 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.slf4j.LoggerFactory
 
 /**
  * Append-only log of price snapshots — every fetch inserts fresh rows (own `id` per row, no
@@ -33,6 +34,8 @@ object MarketPriceTable : Table("market_prices") {
 
 /** Exposed/HikariCP-backed persistence for [MarketPriceTable]. */
 object MarketRepository {
+  private val logger = LoggerFactory.getLogger("MarketRepository")
+
   /** Connects to Postgres and creates [MarketPriceTable] if it doesn't already exist. */
   fun initDatabase(jdbcUrl: String, user: String, password: String) {
     val config =
@@ -50,7 +53,11 @@ object MarketRepository {
   }
 
   /**
-   * Inserts one row per price. Per-row failures (e.g. constraint issues) are swallowed, not thrown.
+   * Inserts one row per price inside a single transaction, catching and logging (never throwing)
+   * any per-row failure. On H2 (used in tests), execution continues past a failed statement; on
+   * Postgres, a failed insert aborts the whole surrounding transaction, so in production a single
+   * bad row can take the rest of the batch down with it — the caller's own catch still prevents
+   * this from failing the response, but rows are not independently committed.
    */
   suspend fun saveAll(prices: List<CoinPrice>) =
       withContext(Dispatchers.IO) {
@@ -69,7 +76,7 @@ object MarketRepository {
                 it[lastUpdated] = p.lastUpdated.epochSecond
               }
             } catch (e: Exception) {
-              // ignore duplicate or constraint issues
+              logger.warn("Failed to persist price snapshot for coinId='${p.coinId}'", e)
             }
           }
         }

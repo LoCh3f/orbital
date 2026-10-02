@@ -25,8 +25,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Build wasmJs distribution
-        run: ./gradlew :orbital-app:wasmJsBrowserDistribution
+      - name: Build wasmJs distribution (market-only demo, no backend — see docs/superpowers/plans/2026-10-02-coingecko-demo-web.md)
+        run: ./gradlew :orbital-app:wasmJsBrowserDistribution -PorbitalDemoBuild=true
 
       - name: Build API docs
         run: ./gradlew dokkaHtmlMultiModule

@@ -9,6 +9,7 @@ import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
 import kotlin.time.Duration.Companion.minutes
@@ -30,7 +31,7 @@ fun Application.module() {
   configureMonitoring("gateway")
   configureMetrics("gateway")
   configureRequestTracing()
-  configureRateLimit()
+  configureRateLimit(trustProxyHeaders = trustProxyHeadersFromEnv())
   configureCors()
   configureRouting()
 }
@@ -54,8 +55,16 @@ private fun Application.configureCors() {
   }
 }
 
-/** Global limit of [REQUESTS_PER_MINUTE] requests per minute, keyed by remote host. */
-private fun Application.configureRateLimit() {
+/**
+ * Global limit of [REQUESTS_PER_MINUTE] requests per minute, keyed by remote host. When
+ * [trustProxyHeaders] is true, installs [XForwardedHeaders] first so `remoteHost` reflects the
+ * original client's address instead of a reverse proxy's — only enable this (via
+ * `TRUST_PROXY_HEADERS=true`) when the gateway sits behind infrastructure you control that
+ * overwrites any client-supplied `X-Forwarded-For` header; otherwise a direct client could spoof it
+ * to bypass rate limiting entirely.
+ */
+internal fun Application.configureRateLimit(trustProxyHeaders: Boolean) {
+  if (trustProxyHeaders) install(XForwardedHeaders)
   install(RateLimit) {
     global {
       rateLimiter(limit = REQUESTS_PER_MINUTE, refillPeriod = 1.minutes)
@@ -63,3 +72,6 @@ private fun Application.configureRateLimit() {
     }
   }
 }
+
+private fun trustProxyHeadersFromEnv(): Boolean =
+    System.getenv("TRUST_PROXY_HEADERS")?.equals("true", ignoreCase = true) == true

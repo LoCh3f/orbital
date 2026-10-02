@@ -27,6 +27,16 @@ curl localhost:8080/api/v1/news            # news-service data
 
 > **Note:** `news-service` currently serves a mocked fallback feed — it doesn't send an API key to NewsAPI, so real news integration is on the roadmap rather than wired up today. This is expected behavior, not a bug.
 
+## ⚙️ Gateway Configuration
+
+The gateway reads a few optional environment variables, none of which `docker-compose.yml` sets by default (safe, permissive-by-default behavior for local dev):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CORS_ALLOWED_HOST` | unset (any origin allowed) | Restrict CORS to a single HTTPS origin in production, e.g. `loch3f.github.io`. |
+| `REDIS_URL` | unset (in-process fallback cache) | Point the gateway's proxy cache at Redis instead of its bounded in-memory fallback. |
+| `TRUST_PROXY_HEADERS` | unset / `false` (rate limiter keys on the real TCP peer) | Set to `true` **only** when the gateway sits behind infrastructure you control that overwrites any client-supplied `X-Forwarded-For` header — otherwise a direct client could spoof it to bypass rate limiting entirely. When enabled, the rate limiter keys on the forwarded client address instead of the proxy's. |
+
 ## 🖥️ Desktop & Web App
 
 `orbital-app` is a Kotlin Multiplatform client (desktop + `wasmJs` web) with a typed market/news UI — search, category filters, live auto-refresh. Needs the backend running (`make up`) first.
@@ -36,7 +46,7 @@ curl localhost:8080/api/v1/news            # news-service data
 ./gradlew :orbital-app:wasmJsBrowserDevelopmentRun   # web, dev server + browser tab
 ```
 
-A build of the web app is deployed automatically on every release to **https://loch3f.github.io/orbital/** — since no backend is hosted publicly, it'll only show live data if you have `make up` running locally on the machine you're viewing it from.
+A **market-only demo** build is deployed automatically on every release to **https://loch3f.github.io/orbital/** — it fetches live data directly from CoinGecko's public API (no key, no backend) via a separate build flavor of the same wasmJs target (`-PorbitalDemoBuild=true`, see `.github/workflows/deploy-web.yml`). There's no News tab in this build, since there's no backend to serve it from. Running `./gradlew :orbital-app:wasmJsBrowserDevelopmentRun` locally (no flag) still builds the full app — Market + News, backend-connected via `make up` — exactly as before.
 
 ## 📖 API Docs
 

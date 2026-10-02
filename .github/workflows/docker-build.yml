@@ -14,10 +14,15 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, market-service, news-service]
 
     steps:
     - uses: actions/checkout@v4
@@ -32,11 +37,11 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata for gateway
-      id: meta-gateway
+    - name: Extract metadata for ${{ matrix.service }}
+      id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}/gateway
+        images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
         tags: |
           type=ref,event=branch
           type=sha,prefix={{branch}}-
@@ -44,59 +49,13 @@ jobs:
           type=semver,pattern={{major}}.{{minor}}
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push gateway
+    - name: Build and push ${{ matrix.service }}
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./gateway/Dockerfile
+        file: ./${{ matrix.service }}/Dockerfile
         push: true
-        tags: ${{ steps.meta-gateway.outputs.tags }}
-        labels: ${{ steps.meta-gateway.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Extract metadata for market-service
-      id: meta-market
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository }}/market-service
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=raw,value=latest,enable={{is_default_branch}}
-
-    - name: Build and push market-service
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./market-service/Dockerfile
-        push: true
-        tags: ${{ steps.meta-market.outputs.tags }}
-        labels: ${{ steps.meta-market.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Extract metadata for news-service
-      id: meta-news
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository }}/news-service
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=raw,value=latest,enable={{is_default_branch}}
-
-    - name: Build and push news-service
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./news-service/Dockerfile
-        push: true
-        tags: ${{ steps.meta-news.outputs.tags }}
-        labels: ${{ steps.meta-news.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha,scope=${{ matrix.service }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.service }}
