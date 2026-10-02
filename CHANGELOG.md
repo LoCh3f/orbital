@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/LoCh3f/orbital/compare/v1.2.0...v1.2.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **app:** decode coingecko as double ([9e794dc](https://github.com/LoCh3f/orbital/commit/9e794dcde62ea1119740d0e5500daadcbf6c5174))
+* **app:** decode coingecko as double ([19dff7f](https://github.com/LoCh3f/orbital/commit/19dff7f2140bf92166150b678d5e1af7e1295ca6))
+
 ## [1.2.0](https://github.com/LoCh3f/orbital/compare/v1.1.0...v1.2.0) (2026-10-02)
 
 

@@ -8,7 +8,7 @@ plugins {
 }
 allprojects {
     group = "com.orbital"
-    version = "1.2.0" // x-release-please-version
+    version = "1.2.1" // x-release-please-version
 
     repositories {
         mavenCentral()
