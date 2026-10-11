@@ -68,4 +68,36 @@ class CoinGeckoMapperTest {
   fun `requireFound throws NotFoundException when null`() {
     assertFailsWith<NotFoundException> { CoinGeckoMapper.requireFound(null, "bitcoin") }
   }
+
+  @Test
+  fun `toHistorySnapshots pairs each price with the market cap and volume at the same index`() {
+    val chart =
+        CoinGeckoMarketChart(
+            prices = listOf(listOf(1_000.0, 100.0), listOf(2_000.0, 110.0)),
+            marketCaps = listOf(listOf(1_000.0, 1_900_000.0), listOf(2_000.0, 2_090_000.0)),
+            totalVolumes = listOf(listOf(1_000.0, 500.0), listOf(2_000.0, 550.0)))
+
+    val snapshots = CoinGeckoMapper.toHistorySnapshots("bitcoin", "btc", "Bitcoin", chart)
+
+    assertEquals(2, snapshots.size)
+    assertEquals("bitcoin", snapshots[0].coinId)
+    assertEquals("BTC", snapshots[0].symbol)
+    assertEquals(100.0, snapshots[0].currentPriceUsd)
+    assertEquals(1_900_000.0, snapshots[0].marketCapUsd)
+    assertEquals(500.0, snapshots[0].volume24hUsd)
+    assertEquals(0.0, snapshots[0].priceChangePercent24h)
+    assertEquals(Instant.ofEpochMilli(1_000), snapshots[0].lastUpdated)
+    assertEquals(110.0, snapshots[1].currentPriceUsd)
+  }
+
+  @Test
+  fun `toHistorySnapshots defaults missing market cap or volume to zero`() {
+    val chart = CoinGeckoMarketChart(prices = listOf(listOf(1_000.0, 100.0)))
+
+    val snapshots = CoinGeckoMapper.toHistorySnapshots("bitcoin", "btc", "Bitcoin", chart)
+
+    assertEquals(1, snapshots.size)
+    assertEquals(0.0, snapshots[0].marketCapUsd)
+    assertEquals(0.0, snapshots[0].volume24hUsd)
+  }
 }

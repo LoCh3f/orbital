@@ -10,10 +10,15 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.sql.Column
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
+
+/** Caps how many stored snapshots [MarketRepository.getPriceHistory] returns for one coin. */
+private const val MAX_HISTORY_POINTS = 500
 
 /**
  * Append-only log of price snapshots — every fetch inserts fresh rows (own `id` per row, no
@@ -79,6 +84,30 @@ object MarketRepository {
               logger.warn("Failed to persist price snapshot for coinId='${p.coinId}'", e)
             }
           }
+        }
+      }
+
+  /**
+   * Returns up to [MAX_HISTORY_POINTS] stored price snapshots for [coinId], oldest first — the most
+   * recent [MAX_HISTORY_POINTS] rows, since this table only grows and an unbounded scan would get
+   * slower (and the response bigger) over time.
+   */
+  suspend fun getPriceHistory(coinId: String): List<Double> =
+      withContext(Dispatchers.IO) {
+        transaction {
+          MarketPriceTable.select { MarketPriceTable.coinId eq coinId }
+              .orderBy(MarketPriceTable.lastUpdated, SortOrder.DESC)
+              .limit(MAX_HISTORY_POINTS)
+              .map { it[MarketPriceTable.currentPriceUsd] }
+              .reversed()
+        }
+      }
+
+  /** Whether any snapshot (live or backfilled) has been stored for [coinId] yet. */
+  suspend fun hasHistory(coinId: String): Boolean =
+      withContext(Dispatchers.IO) {
+        transaction {
+          MarketPriceTable.select { MarketPriceTable.coinId eq coinId }.limit(1).count() > 0
         }
       }
 }

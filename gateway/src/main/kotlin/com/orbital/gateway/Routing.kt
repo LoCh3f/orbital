@@ -124,10 +124,10 @@ suspend fun proxyWithCache(
 }
 
 /**
- * Registers the gateway's proxy routes: `/api/v1/market/prices` → market-service and `/api/v1/news`
- * → news-service, both cached via [proxyWithCache] and forwarded with the request's `X-Request-Id`
- * for cross-service log correlation. Prefers Redis for the cache if `REDIS_URL` is set, otherwise
- * falls back to an in-process [MemoryCache].
+ * Registers the gateway's proxy routes: `/api/v1/market/prices`, `/api/v1/market/history/{coinId}`
+ * → market-service and `/api/v1/news` → news-service, all cached via [proxyWithCache] and forwarded
+ * with the request's `X-Request-Id` for cross-service log correlation. Prefers Redis for the cache
+ * if `REDIS_URL` is set, otherwise falls back to an in-process [MemoryCache].
  */
 fun Application.configureRouting(
     client: HttpClient = HttpClient(CIO),
@@ -147,6 +147,27 @@ fun Application.configureRouting(
                 client.get("$MARKET_SERVICE_URL/api/v1/market/prices") {
                   header(HttpHeaders.XRequestId, call.callId)
                   if (!coinIds.isNullOrBlank()) parameter("coinIds", coinIds)
+                }
+            response.status to response.bodyAsText()
+          }
+
+      call.respondText(body, contentType = ContentType.Application.Json, status = status)
+    }
+
+    // Proxy market history to market-service with cache
+    get("/api/v1/market/history/{coinId}") {
+      val coinId = call.parameters["coinId"]
+      if (coinId.isNullOrBlank()) {
+        call.respond(HttpStatusCode.BadRequest)
+        return@get
+      }
+      val cacheKey = "market:history:$coinId"
+
+      val (status, body) =
+          proxyWithCache(cache, cacheKey) {
+            val response: HttpResponse =
+                client.get("$MARKET_SERVICE_URL/api/v1/market/history/$coinId") {
+                  header(HttpHeaders.XRequestId, call.callId)
                 }
             response.status to response.bodyAsText()
           }

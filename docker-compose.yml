@@ -49,6 +49,24 @@ services:
     networks:
       - orbital-net
 
+  # Market Data Ingestor - polls CoinGecko and persists price snapshots on a fixed interval,
+  # independent of market-service's API traffic
+  market-ingestor:
+    build:
+      context: ./
+      dockerfile: ./market-service/Dockerfile.ingestor
+    container_name: orbital-market-ingestor
+    environment:
+      - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
+      - DB_USER=market_user
+      - DB_PASSWORD=market_pass
+      - INGEST_INTERVAL_MS=60000
+    depends_on:
+      - postgres-market
+    restart: unless-stopped
+    networks:
+      - orbital-net
+
   # News Service
   news-service:
     build:
