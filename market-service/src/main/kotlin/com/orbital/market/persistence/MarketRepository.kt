@@ -35,6 +35,13 @@ object MarketPriceTable : Table("market_prices") {
   val priceChangePercent24h: Column<Double> = double("price_change_percent_24h")
   val lastUpdated: Column<Long> = long("last_updated")
   override val primaryKey = PrimaryKey(id)
+
+  init {
+    // getPriceHistory filters by coinId and orders by lastUpdated — without this, that's a full
+    // table scan on a table that only ever grows (append-only, plus a one-time per-coin backfill
+    // of possibly thousands of rows).
+    index(isUnique = false, columns = arrayOf(coinId, lastUpdated))
+  }
 }
 
 /** Exposed/HikariCP-backed persistence for [MarketPriceTable]. */
