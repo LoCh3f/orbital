@@ -71,7 +71,8 @@ class NewsRepositoryTest {
             sampleArticle("A tech headline").copy(category = NewsCategory.TECH)))
 
     val cryptoHistory = NewsRepository.getHistory(NewsCategory.CRYPTO)
-    assertEquals(listOf("Newer crypto headline", "Older crypto headline"), cryptoHistory.map { it.title })
+    assertEquals(
+        listOf("Newer crypto headline", "Older crypto headline"), cryptoHistory.map { it.title })
 
     val allHistory = NewsRepository.getHistory()
     assertEquals(3, allHistory.size)

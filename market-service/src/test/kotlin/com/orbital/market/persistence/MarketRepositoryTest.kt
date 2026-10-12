@@ -67,11 +67,15 @@ class MarketRepositoryTest {
 
         MarketRepository.saveAll(
             listOf(
-                samplePrice(coinId = "bitcoin").copy(
-                    currentPriceUsd = 10.0, lastUpdated = Instant.parse("2024-01-01T00:00:00Z")),
+                samplePrice(coinId = "bitcoin")
+                    .copy(
+                        currentPriceUsd = 10.0,
+                        lastUpdated = Instant.parse("2024-01-01T00:00:00Z")),
                 samplePrice(coinId = "ethereum").copy(currentPriceUsd = 999.0),
-                samplePrice(coinId = "bitcoin").copy(
-                    currentPriceUsd = 20.0, lastUpdated = Instant.parse("2024-01-02T00:00:00Z"))))
+                samplePrice(coinId = "bitcoin")
+                    .copy(
+                        currentPriceUsd = 20.0,
+                        lastUpdated = Instant.parse("2024-01-02T00:00:00Z"))))
 
         val history = MarketRepository.getPriceHistory("bitcoin")
 

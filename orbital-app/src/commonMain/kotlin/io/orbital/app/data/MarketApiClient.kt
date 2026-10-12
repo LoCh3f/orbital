@@ -12,7 +12,9 @@ class MarketApiClient(
   suspend fun fetchMarketPrices(): List<MarketPrice> =
       client.get("$baseUrl/api/v1/market/prices").body<MarketPricesResponse>().data
 
-  /** Our own ingested price history for one coin, oldest first — not CoinGecko's 7-day sparkline. */
+  /**
+   * Our own ingested price history for one coin, oldest first — not CoinGecko's 7-day sparkline.
+   */
   suspend fun fetchPriceHistory(coinId: String): List<Double> =
       client.get("$baseUrl/api/v1/market/history/$coinId").body<PriceHistoryResponse>().data
 }

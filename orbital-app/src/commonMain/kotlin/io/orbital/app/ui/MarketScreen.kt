@@ -183,7 +183,10 @@ private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPri
 }
 
 @Composable
-private fun coinPriceRow(coin: MarketPrice, fetchPriceHistory: (suspend (String) -> List<Double>)?) {
+private fun coinPriceRow(
+    coin: MarketPrice,
+    fetchPriceHistory: (suspend (String) -> List<Double>)?
+) {
   var expanded by remember { mutableStateOf(false) }
   Card(
       modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
@@ -251,8 +254,7 @@ private fun coinExpandedDetails(
   var history by remember(coin.coinId) { mutableStateOf<List<Double>>(emptyList()) }
   LaunchedEffect(coin.coinId) {
     if (fetchPriceHistory != null) {
-      runCatching { fetchPriceHistory(coin.coinId) }
-          .onSuccess { if (it.size >= 2) history = it }
+      runCatching { fetchPriceHistory(coin.coinId) }.onSuccess { if (it.size >= 2) history = it }
     }
   }
   // Prefer our own ingested history (grows past 7 days over time) over CoinGecko's sparkline.
