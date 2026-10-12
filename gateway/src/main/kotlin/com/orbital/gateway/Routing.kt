@@ -34,6 +34,19 @@ private const val DEFAULT_CACHE_TTL = 60 // seconds
 private val logger = LoggerFactory.getLogger("GatewayRouting")
 
 /**
+ * Parses `REDIS_SENTINEL_HOSTS` (comma-separated `host:port` pairs) and `REDIS_MASTER_NAME` into
+ * (masterName, sentinelHostPorts), or null if Sentinel isn't configured. Shared by [defaultCache]
+ * and `App.kt`'s `defaultRateLimiter` so both back onto the same Sentinel-vs-single-instance
+ * decision instead of parsing the env twice.
+ */
+internal fun sentinelConfigFromEnv(): Pair<String, Set<String>>? {
+  val sentinelHosts = System.getenv("REDIS_SENTINEL_HOSTS")
+  if (sentinelHosts.isNullOrBlank()) return null
+  val masterName = System.getenv("REDIS_MASTER_NAME") ?: "mymaster"
+  return masterName to sentinelHosts.split(",").map { it.trim() }.toSet()
+}
+
+/**
  * Minimal string cache abstraction the gateway proxies through, backed by [RedisCache] or
  * [MemoryCache].
  */
@@ -246,10 +259,7 @@ private fun Route.newsHistoryRoute(client: HttpClient, cache: Cache?) {
  * alone can't do that once the host it names stops being the master.
  */
 private fun defaultCache(): Cache? {
-  val sentinelHosts = System.getenv("REDIS_SENTINEL_HOSTS")
-  if (!sentinelHosts.isNullOrBlank()) {
-    val masterName = System.getenv("REDIS_MASTER_NAME") ?: "mymaster"
-    val sentinels = sentinelHosts.split(",").map { it.trim() }.toSet()
+  sentinelConfigFromEnv()?.let { (masterName, sentinels) ->
     return RedisCache(JedisSentinelPool(masterName, sentinels))
   }
   val redisUrl = System.getenv("REDIS_URL")
