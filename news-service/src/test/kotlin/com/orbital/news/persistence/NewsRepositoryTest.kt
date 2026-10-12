@@ -57,4 +57,23 @@ class NewsRepositoryTest {
         val count = transaction { NewsTable.selectAll().count() }
         assertEquals(1, count)
       }
+
+  @Test
+  fun `getHistory returns most recent first, filtered by category when given`() = runBlocking {
+    NewsRepository.initDatabase(testDbUrl(), "sa", "")
+
+    NewsRepository.saveAll(
+        listOf(
+            sampleArticle("Older crypto headline")
+                .copy(publishedAt = Instant.parse("2024-01-01T00:00:00Z")),
+            sampleArticle("Newer crypto headline")
+                .copy(publishedAt = Instant.parse("2024-01-02T00:00:00Z")),
+            sampleArticle("A tech headline").copy(category = NewsCategory.TECH)))
+
+    val cryptoHistory = NewsRepository.getHistory(NewsCategory.CRYPTO)
+    assertEquals(listOf("Newer crypto headline", "Older crypto headline"), cryptoHistory.map { it.title })
+
+    val allHistory = NewsRepository.getHistory()
+    assertEquals(3, allHistory.size)
+  }
 }
