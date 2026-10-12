@@ -17,12 +17,16 @@ import io.ktor.server.application.call
 import io.ktor.server.plugins.callid.callId
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import org.slf4j.LoggerFactory
+import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPool
+import redis.clients.jedis.JedisSentinelPool
+import redis.clients.jedis.util.Pool
 
 private val MARKET_SERVICE_URL = System.getenv("MARKET_SERVICE_URL") ?: "http://127.0.0.1:8081"
 private val NEWS_SERVICE_URL = System.getenv("NEWS_SERVICE_URL") ?: "http://127.0.0.1:8082"
@@ -39,8 +43,13 @@ interface Cache {
   fun setex(key: String, ttlSeconds: Int, value: String)
 }
 
-/** [Cache] backed by Redis, used when `REDIS_URL` is set. */
-class RedisCache(private val pool: JedisPool) : Cache {
+/**
+ * [Cache] backed by Redis, used when `REDIS_URL` (a single instance) or `REDIS_SENTINEL_HOSTS` (a
+ * Sentinel-monitored primary/replica set — see [defaultCache]) is configured. [pool] is typed to
+ * the common base so either a plain [JedisPool] or a [JedisSentinelPool] (which re-discovers the
+ * current master on failover) works here unchanged.
+ */
+class RedisCache(private val pool: Pool<Jedis>) : Cache {
   override fun get(key: String): String? = pool.resource.use { it.get(key) }
 
   override fun setex(key: String, ttlSeconds: Int, value: String) {
@@ -125,9 +134,10 @@ suspend fun proxyWithCache(
 
 /**
  * Registers the gateway's proxy routes: `/api/v1/market/prices`, `/api/v1/market/history/{coinId}`
- * → market-service and `/api/v1/news` → news-service, all cached via [proxyWithCache] and forwarded
- * with the request's `X-Request-Id` for cross-service log correlation. Prefers Redis for the cache
- * if `REDIS_URL` is set, otherwise falls back to an in-process [MemoryCache].
+ * → market-service and `/api/v1/news`, `/api/v1/news/history` → news-service, all cached via
+ * [proxyWithCache] and forwarded with the request's `X-Request-Id` for cross-service log
+ * correlation. Prefers Redis for the cache if `REDIS_URL` is set, otherwise falls back to an
+ * in-process [MemoryCache].
  */
 fun Application.configureRouting(
     client: HttpClient = HttpClient(CIO),
@@ -136,66 +146,112 @@ fun Application.configureRouting(
   routing {
     get("/") { call.respond(mapOf("message" to "Orbital Gateway API")) }
 
-    // Proxy market prices to market-service with cache
-    get("/api/v1/market/prices") {
-      val coinIds = call.request.queryParameters["coinIds"]
-      val cacheKey = "market:prices:${coinIds ?: "all"}"
-
-      val (status, body) =
-          proxyWithCache(cache, cacheKey) {
-            val response: HttpResponse =
-                client.get("$MARKET_SERVICE_URL/api/v1/market/prices") {
-                  header(HttpHeaders.XRequestId, call.callId)
-                  if (!coinIds.isNullOrBlank()) parameter("coinIds", coinIds)
-                }
-            response.status to response.bodyAsText()
-          }
-
-      call.respondText(body, contentType = ContentType.Application.Json, status = status)
-    }
-
-    // Proxy market history to market-service with cache
-    get("/api/v1/market/history/{coinId}") {
-      val coinId = call.parameters["coinId"]
-      if (coinId.isNullOrBlank()) {
-        call.respond(HttpStatusCode.BadRequest)
-        return@get
-      }
-      val cacheKey = "market:history:$coinId"
-
-      val (status, body) =
-          proxyWithCache(cache, cacheKey) {
-            val response: HttpResponse =
-                client.get("$MARKET_SERVICE_URL/api/v1/market/history/$coinId") {
-                  header(HttpHeaders.XRequestId, call.callId)
-                }
-            response.status to response.bodyAsText()
-          }
-
-      call.respondText(body, contentType = ContentType.Application.Json, status = status)
-    }
-
-    // Proxy news to news-service with cache
-    get("/api/v1/news") {
-      val category = call.request.queryParameters["category"]
-      val cacheKey = "news:category:${category ?: "all"}"
-
-      val (status, body) =
-          proxyWithCache(cache, cacheKey) {
-            val response: HttpResponse =
-                client.get("$NEWS_SERVICE_URL/api/v1/news") {
-                  header(HttpHeaders.XRequestId, call.callId)
-                  if (!category.isNullOrBlank()) parameter("category", category)
-                }
-            response.status to response.bodyAsText()
-          }
-
-      call.respondText(body, contentType = ContentType.Application.Json, status = status)
-    }
+    marketPricesRoute(client, cache)
+    marketHistoryRoute(client, cache)
+    newsRoute(client, cache)
+    newsHistoryRoute(client, cache)
   }
 }
 
+/** Proxies `/api/v1/market/prices` to market-service, cached by the requested `coinIds`. */
+private fun Route.marketPricesRoute(client: HttpClient, cache: Cache?) {
+  get("/api/v1/market/prices") {
+    val coinIds = call.request.queryParameters["coinIds"]
+    val cacheKey = "market:prices:${coinIds ?: "all"}"
+
+    val (status, body) =
+        proxyWithCache(cache, cacheKey) {
+          val response: HttpResponse =
+              client.get("$MARKET_SERVICE_URL/api/v1/market/prices") {
+                header(HttpHeaders.XRequestId, call.callId)
+                if (!coinIds.isNullOrBlank()) parameter("coinIds", coinIds)
+              }
+          response.status to response.bodyAsText()
+        }
+
+    call.respondText(body, contentType = ContentType.Application.Json, status = status)
+  }
+}
+
+/** Proxies `/api/v1/market/history/{coinId}` to market-service, cached per coin. */
+private fun Route.marketHistoryRoute(client: HttpClient, cache: Cache?) {
+  get("/api/v1/market/history/{coinId}") {
+    val coinId = call.parameters["coinId"]
+    if (coinId.isNullOrBlank()) {
+      call.respond(HttpStatusCode.BadRequest)
+      return@get
+    }
+    val cacheKey = "market:history:$coinId"
+
+    val (status, body) =
+        proxyWithCache(cache, cacheKey) {
+          val response: HttpResponse =
+              client.get("$MARKET_SERVICE_URL/api/v1/market/history/$coinId") {
+                header(HttpHeaders.XRequestId, call.callId)
+              }
+          response.status to response.bodyAsText()
+        }
+
+    call.respondText(body, contentType = ContentType.Application.Json, status = status)
+  }
+}
+
+/** Proxies `/api/v1/news` to news-service, cached by the requested category. */
+private fun Route.newsRoute(client: HttpClient, cache: Cache?) {
+  get("/api/v1/news") {
+    val category = call.request.queryParameters["category"]
+    val cacheKey = "news:category:${category ?: "all"}"
+
+    val (status, body) =
+        proxyWithCache(cache, cacheKey) {
+          val response: HttpResponse =
+              client.get("$NEWS_SERVICE_URL/api/v1/news") {
+                header(HttpHeaders.XRequestId, call.callId)
+                if (!category.isNullOrBlank()) parameter("category", category)
+              }
+          response.status to response.bodyAsText()
+        }
+
+    call.respondText(body, contentType = ContentType.Application.Json, status = status)
+  }
+}
+
+/** Proxies `/api/v1/news/history` to news-service, cached by the requested category. */
+private fun Route.newsHistoryRoute(client: HttpClient, cache: Cache?) {
+  get("/api/v1/news/history") {
+    val category = call.request.queryParameters["category"]
+    val cacheKey = "news:history:${category ?: "all"}"
+
+    val (status, body) =
+        proxyWithCache(cache, cacheKey) {
+          val response: HttpResponse =
+              client.get("$NEWS_SERVICE_URL/api/v1/news/history") {
+                header(HttpHeaders.XRequestId, call.callId)
+                if (!category.isNullOrBlank()) parameter("category", category)
+              }
+          response.status to response.bodyAsText()
+        }
+
+    call.respondText(body, contentType = ContentType.Application.Json, status = status)
+  }
+}
+
+/**
+ * Prefers a Sentinel-monitored Redis (`REDIS_SENTINEL_HOSTS`, comma-separated `host:port` pairs,
+ * plus `REDIS_MASTER_NAME`) over a single-instance one (`REDIS_URL`), falling back to [MemoryCache]
+ * when neither is set. Sentinel mode is what actually makes [MemoryCache]'s per-replica-independent
+ * problem (see this file's top-level doc comment) go away when running more than one gateway
+ * instance: every replica's [JedisSentinelPool] asks the same Sentinel quorum who the current
+ * master is, so they all land on one shared cache even across a failover — a single `REDIS_URL`
+ * alone can't do that once the host it names stops being the master.
+ */
 private fun defaultCache(): Cache? {
+  val sentinelHosts = System.getenv("REDIS_SENTINEL_HOSTS")
+  if (!sentinelHosts.isNullOrBlank()) {
+    val masterName = System.getenv("REDIS_MASTER_NAME") ?: "mymaster"
+    val sentinels = sentinelHosts.split(",").map { it.trim() }.toSet()
+    return RedisCache(JedisSentinelPool(masterName, sentinels))
+  }
   val redisUrl = System.getenv("REDIS_URL")
   val jedisPool = redisUrl?.let { JedisPool(URI(it)) }
   return jedisPool?.let { RedisCache(it) } ?: MemoryCache()
