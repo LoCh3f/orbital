@@ -36,4 +36,31 @@ object CoinGeckoMapper {
   /** Unwraps a nullable CoinGecko lookup, throwing [NotFoundException] for `null`. */
   fun requireFound(data: CoinGeckoCryptoData?, coinId: String): CoinGeckoCryptoData =
       data ?: throw NotFoundException("Coin '$coinId' was not found")
+
+  /**
+   * Maps a [CoinGeckoMarketChart] into one [CoinPrice] snapshot per historical price point, paired
+   * by index with the market-cap/volume sampled at the same timestamp. [symbol]/[name] come from
+   * the coin's current metadata since `market_chart` carries no identity fields, and
+   * `priceChangePercent24h` is always `0.0` — CoinGecko doesn't return a historical 24h-change
+   * series, only the 24h snapshot used by [toCoinPrice].
+   */
+  fun toHistorySnapshots(
+      coinId: String,
+      symbol: String,
+      name: String,
+      chart: CoinGeckoMarketChart
+  ): List<CoinPrice> =
+      chart.prices.mapIndexedNotNull { index, point ->
+        val timestampMs = point.getOrNull(0) ?: return@mapIndexedNotNull null
+        val price = point.getOrNull(1) ?: return@mapIndexedNotNull null
+        CoinPrice(
+            coinId = coinId,
+            symbol = symbol.uppercase(),
+            name = name,
+            currentPriceUsd = price,
+            marketCapUsd = chart.marketCaps.getOrNull(index)?.getOrNull(1) ?: 0.0,
+            volume24hUsd = chart.totalVolumes.getOrNull(index)?.getOrNull(1) ?: 0.0,
+            priceChangePercent24h = 0.0,
+            lastUpdated = Instant.ofEpochMilli(timestampMs.toLong()))
+      }
 }

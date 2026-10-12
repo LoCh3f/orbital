@@ -89,6 +89,7 @@ fun orbitalApp() {
         // search text and polling state survive switching to News and back — see its doc comment.
         marketSection(
             fetchMarketPrices = marketApiClient::fetchMarketPrices,
+            fetchPriceHistory = marketApiClient::fetchPriceHistory,
             visible = selectedSection == Section.MARKET)
         if (selectedSection == Section.NEWS) {
           newsScreen(

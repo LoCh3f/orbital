@@ -34,4 +34,23 @@ class RateLimitForwardedHeadersTest {
     val response = client.get("/__remote-host") { header("X-Forwarded-For", "203.0.113.5") }
     assertEquals("203.0.113.5", response.bodyAsText())
   }
+
+  @Test
+  fun `rejects requests once an injected rate limiter denies them`() = testApplication {
+    var calls = 0
+    val limiter =
+        object : RateLimiter {
+          override fun tryAcquire(key: String): Boolean = (calls++) < 1
+        }
+    application {
+      configureRateLimit(trustProxyHeaders = false, rateLimiter = limiter)
+      routing { get("/__probe") { call.respondText("ok") } }
+    }
+
+    val first = client.get("/__probe")
+    assertEquals(HttpStatusCode.OK, first.status)
+
+    val second = client.get("/__probe")
+    assertEquals(HttpStatusCode.TooManyRequests, second.status)
+  }
 }

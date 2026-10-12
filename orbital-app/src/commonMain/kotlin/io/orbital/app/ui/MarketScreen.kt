@@ -69,9 +69,18 @@ private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
  * (search text, last-loaded prices) on every tab switch, since Compose disposes a conditionally
  * included branch's whole subtree. [visible] defaults to `true` for single-screen callers (e.g. the
  * backend-free demo app) that have no tabs to switch away from.
+ *
+ * [fetchPriceHistory], when given, fetches our own ingested price history for a coin's expanded
+ * detail chart — longer than CoinGecko's 7-day sparkline, since it's not CoinGecko-rate-limited.
+ * Left `null` for callers with no backend to ask (e.g. the demo build), which fall back to
+ * [MarketPrice.sparklineIn7d] for the detail chart too.
  */
 @Composable
-fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>, visible: Boolean = true) {
+fun marketSection(
+    fetchMarketPrices: suspend () -> List<MarketPrice>,
+    fetchPriceHistory: (suspend (String) -> List<Double>)? = null,
+    visible: Boolean = true
+) {
   var state by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
   var searchQuery by remember { mutableStateOf("") }
   val scope = rememberCoroutineScope()
@@ -99,7 +108,8 @@ fun marketSection(fetchMarketPrices: suspend () -> List<MarketPrice>, visible: B
         state = state,
         searchQuery = searchQuery,
         onSearchQueryChange = { searchQuery = it },
-        onRefresh = { scope.launch { refresh() } })
+        onRefresh = { scope.launch { refresh() } },
+        fetchPriceHistory = fetchPriceHistory)
   }
 }
 
@@ -108,7 +118,8 @@ fun marketScreen(
     state: UiState<List<MarketPrice>>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    fetchPriceHistory: (suspend (String) -> List<Double>)? = null
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
     TextField(
@@ -143,7 +154,7 @@ fun marketScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              items(filtered) { coin -> coinPriceRow(coin) }
+              items(filtered) { coin -> coinPriceRow(coin, fetchPriceHistory) }
             }
       }
     }
@@ -172,7 +183,10 @@ private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPri
 }
 
 @Composable
-private fun coinPriceRow(coin: MarketPrice) {
+private fun coinPriceRow(
+    coin: MarketPrice,
+    fetchPriceHistory: (suspend (String) -> List<Double>)?
+) {
   var expanded by remember { mutableStateOf(false) }
   Card(
       modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
@@ -181,7 +195,7 @@ private fun coinPriceRow(coin: MarketPrice) {
           CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
           coinSummaryRow(coin)
-          if (expanded) coinExpandedDetails(coin)
+          if (expanded) coinExpandedDetails(coin, fetchPriceHistory)
         }
       }
 }
@@ -233,15 +247,27 @@ private fun coinSummaryRow(coin: MarketPrice) {
 }
 
 @Composable
-private fun coinExpandedDetails(coin: MarketPrice) {
+private fun coinExpandedDetails(
+    coin: MarketPrice,
+    fetchPriceHistory: (suspend (String) -> List<Double>)?
+) {
+  var history by remember(coin.coinId) { mutableStateOf<List<Double>>(emptyList()) }
+  LaunchedEffect(coin.coinId) {
+    if (fetchPriceHistory != null) {
+      runCatching { fetchPriceHistory(coin.coinId) }.onSuccess { if (it.size >= 2) history = it }
+    }
+  }
+  // Prefer our own ingested history (grows past 7 days over time) over CoinGecko's sparkline.
+  val chartPoints = history.ifEmpty { coin.sparklineIn7d }
+
   HorizontalDivider(
       modifier = Modifier.padding(vertical = 8.dp),
       color = MaterialTheme.colorScheme.outlineVariant)
-  if (coin.sparklineIn7d.size >= 2) {
+  if (chartPoints.size >= 2) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
       priceChart(
           modifier = Modifier,
-          points = coin.sparklineIn7d,
+          points = chartPoints,
           positive = coin.priceChangePercent24h >= 0,
           size = DpSize(maxWidth, DETAIL_CHART_HEIGHT),
           interactive = true)

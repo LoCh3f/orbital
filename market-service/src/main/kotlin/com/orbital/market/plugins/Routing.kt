@@ -27,8 +27,8 @@ import org.slf4j.LoggerFactory
 private const val TOP_LIMIT = 20
 
 /**
- * Registers `/health`, `/api/v1/market/prices`, `/api/v1/market/prices/{coinId}`, and
- * `/api/v1/market/stats/{coinId}`.
+ * Registers `/health`, `/api/v1/market/prices`, `/api/v1/market/prices/{coinId}`,
+ * `/api/v1/market/stats/{coinId}`, and `/api/v1/market/history/{coinId}`.
  */
 fun Application.configureRouting(
     appScope: CoroutineScope,
@@ -43,6 +43,7 @@ fun Application.configureRouting(
     pricesRoute(coinGeckoClient, appScope)
     priceRoute(coinGeckoClient)
     statsRoute(coinGeckoClient)
+    historyRoute()
   }
 }
 
@@ -115,6 +116,22 @@ private fun Route.statsRoute(coinGeckoClient: CoinGeckoClient) {
     }
     if (result.isFailure) {
       respondWithError(call, result.exceptionOrNull(), "Failed to fetch stats")
+      return@get
+    }
+    call.respond(ApiResponse.Success(result.getOrThrow()))
+  }
+}
+
+/**
+ * `GET /api/v1/market/history/{coinId}` — stored price snapshots for a coin, oldest first, from
+ * [MarketRepository] (our own ingested history, not CoinGecko's 7-day-capped sparkline).
+ */
+private fun Route.historyRoute() {
+  get("/api/v1/market/history/{coinId}") {
+    val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+    val result = runCatching { MarketRepository.getPriceHistory(coinId) }
+    if (result.isFailure) {
+      respondWithError(call, result.exceptionOrNull(), "Failed to fetch price history")
       return@get
     }
     call.respond(ApiResponse.Success(result.getOrThrow()))

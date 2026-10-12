@@ -50,4 +50,18 @@ class CoinGeckoClient(private val client: HttpClient) {
         }
     return response.body()
   }
+
+  /**
+   * Fetches [id]'s historical price/market-cap/volume series over [days] (a day count, or `"max"`
+   * for the coin's full available history). Used for a one-time backfill, not the regular polling
+   * loop — CoinGecko's `/coins/markets` (used elsewhere in this client) can't return history.
+   */
+  suspend fun getMarketChart(id: String, days: String = "max"): CoinGeckoMarketChart {
+    val response =
+        client.get("$baseUrl/coins/$id/market_chart") {
+          parameter("vs_currency", "usd")
+          parameter("days", days)
+        }
+    return response.body()
+  }
 }

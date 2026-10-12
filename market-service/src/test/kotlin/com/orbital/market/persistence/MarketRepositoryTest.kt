@@ -59,4 +59,38 @@ class MarketRepositoryTest {
         val count = transaction { MarketPriceTable.selectAll().count() }
         assertEquals(1, count)
       }
+
+  @Test
+  fun `getPriceHistory returns a coin's snapshots oldest first, excluding other coins`() =
+      runBlocking {
+        MarketRepository.initDatabase(testDbUrl(), "sa", "")
+
+        MarketRepository.saveAll(
+            listOf(
+                samplePrice(coinId = "bitcoin")
+                    .copy(
+                        currentPriceUsd = 10.0,
+                        lastUpdated = Instant.parse("2024-01-01T00:00:00Z")),
+                samplePrice(coinId = "ethereum").copy(currentPriceUsd = 999.0),
+                samplePrice(coinId = "bitcoin")
+                    .copy(
+                        currentPriceUsd = 20.0,
+                        lastUpdated = Instant.parse("2024-01-02T00:00:00Z"))))
+
+        val history = MarketRepository.getPriceHistory("bitcoin")
+
+        assertEquals(listOf(10.0, 20.0), history)
+      }
+
+  @Test
+  fun `hasHistory is false until a snapshot is stored for that coin`() = runBlocking {
+    MarketRepository.initDatabase(testDbUrl(), "sa", "")
+
+    assertEquals(false, MarketRepository.hasHistory("bitcoin"))
+
+    MarketRepository.saveAll(listOf(samplePrice(coinId = "bitcoin")))
+
+    assertTrue(MarketRepository.hasHistory("bitcoin"))
+    assertEquals(false, MarketRepository.hasHistory("ethereum"))
+  }
 }

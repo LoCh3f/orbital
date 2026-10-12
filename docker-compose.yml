@@ -1,25 +1,50 @@
 services:
   # API Gateway
+  #
+  # No fixed container_name or published host port here on purpose: both block running more than
+  # one replica (`docker compose up --scale gateway=3 -d`). gateway-lb below is what the host
+  # actually talks to on 8080. UNVERIFIED (no Docker daemon available to test scaling against) —
+  # see gateway-lb's own comment and nginx/gateway-lb.conf.
   gateway:
     build:
       context: ./
       dockerfile: ./gateway/Dockerfile
-    container_name: orbital-gateway
-    ports:
-      - "8080:8080"
     environment:
       - JAVA_OPTS=-Xmx512m
       - MARKET_SERVICE_URL=http://market-service:8081
       - NEWS_SERVICE_URL=http://news-service:8082
+      # Sentinel mode (preferred — see RedisCache/defaultCache's doc comment) takes priority over
+      # REDIS_URL whenever both are set, so a single named host never becomes a stale cache target
+      # after Sentinel fails over to a different master.
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - REDIS_MASTER_NAME=mymaster
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - postgres-market
       - postgres-news
       - redis
+      - redis-sentinel-1
+      - redis-sentinel-2
+      - redis-sentinel-3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - orbital-net
+
+  # Load balancer in front of however many `gateway` replicas are running — the host's actual
+  # entry point on 8080 now that `gateway` itself no longer publishes that port. UNVERIFIED.
+  gateway-lb:
+    image: nginx:1.27-alpine
+    container_name: orbital-gateway-lb
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/gateway-lb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway
     networks:
       - orbital-net
 
@@ -49,6 +74,24 @@ services:
     networks:
       - orbital-net
 
+  # Market Data Ingestor - polls CoinGecko and persists price snapshots on a fixed interval,
+  # independent of market-service's API traffic
+  market-ingestor:
+    build:
+      context: ./
+      dockerfile: ./market-service/Dockerfile.ingestor
+    container_name: orbital-market-ingestor
+    environment:
+      - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
+      - DB_USER=market_user
+      - DB_PASSWORD=market_pass
+      - INGEST_INTERVAL_MS=60000
+    depends_on:
+      - postgres-market
+    restart: unless-stopped
+    networks:
+      - orbital-net
+
   # News Service
   news-service:
     build:
@@ -62,11 +105,16 @@ services:
       - DB_URL=jdbc:postgresql://postgres-news:5432/news_data
       - DB_USER=news_user
       - DB_PASSWORD=news_pass
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - REDIS_MASTER_NAME=mymaster
       - REDIS_URL=redis://redis:6379
       - NEWS_API_KEY=${NEWS_API_KEY}
     depends_on:
       - postgres-news
       - redis
+      - redis-sentinel-1
+      - redis-sentinel-2
+      - redis-sentinel-3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
       interval: 30s
@@ -75,7 +123,7 @@ services:
     networks:
       - orbital-net
 
-  # Database Market Data
+  # Database Market Data (primary)
   postgres-market:
     image: postgres:15
     container_name: postgres-market
@@ -83,6 +131,8 @@ services:
       POSTGRES_DB: market_data
       POSTGRES_USER: market_user
       POSTGRES_PASSWORD: market_pass
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
     ports:
       - "5432:5432"
     volumes:
@@ -96,7 +146,31 @@ services:
       timeout: 5s
       retries: 5
 
-  # Database News
+  # Streaming-replication standby of postgres-market. UNVERIFIED (no Docker daemon available to
+  # test replication/failover against) — see database/replica-entrypoint.sh's own comment, and
+  # point 2 of the Known Limitations doc this answers. Note this gives you a readable, up-to-date
+  # standby for disaster recovery, not automatic failover: nothing here promotes it to primary or
+  # repoints market-service's DB_URL if postgres-market goes down — that's normally a job for a
+  # tool like Patroni/repmgr, deliberately left out of this draft as a separate, bigger piece of
+  # work.
+  postgres-market-replica:
+    image: postgres:15
+    container_name: postgres-market-replica
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PRIMARY_HOST: postgres-market
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
+    entrypoint: ["/bin/bash", "/docker-entrypoint-replica.sh"]
+    volumes:
+      - postgres_market_replica_data:/var/lib/postgresql/data
+      - ./database/replica-entrypoint.sh:/docker-entrypoint-replica.sh:ro
+    depends_on:
+      - postgres-market
+    networks:
+      - orbital-net
+
+  # Database News (primary)
   postgres-news:
     image: postgres:15
     container_name: postgres-news
@@ -104,6 +178,8 @@ services:
       POSTGRES_DB: news_data
       POSTGRES_USER: news_user
       POSTGRES_PASSWORD: news_pass
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
     ports:
       - "5433:5432"
     volumes:
@@ -117,9 +193,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # Streaming-replication standby of postgres-news. Same caveats as postgres-market-replica above.
+  postgres-news-replica:
+    image: postgres:15
+    container_name: postgres-news-replica
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PRIMARY_HOST: postgres-news
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
+    entrypoint: ["/bin/bash", "/docker-entrypoint-replica.sh"]
+    volumes:
+      - postgres_news_replica_data:/var/lib/postgresql/data
+      - ./database/replica-entrypoint.sh:/docker-entrypoint-replica.sh:ro
+    depends_on:
+      - postgres-news
+    networks:
+      - orbital-net
 
-
-  # Redis Cache
+  # Redis Cache (primary)
   redis:
     image: redis:7-alpine
     container_name: redis-cache
@@ -135,6 +227,59 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  # Replica of `redis`, for Sentinel to promote on failover. UNVERIFIED.
+  redis-replica:
+    image: redis:7-alpine
+    container_name: redis-replica
+    command: redis-server --replicaof redis 6379 --appendonly yes
+    volumes:
+      - redis_replica_data:/data
+    depends_on:
+      - redis
+    networks:
+      - orbital-net
+
+  # Sentinel quorum (3 instances, quorum=2 — see redis/sentinel-*.conf) monitoring `redis`/
+  # `redis-replica` and handling failover. gateway and news-service talk to Redis through this
+  # quorum (REDIS_SENTINEL_HOSTS) rather than a fixed host, so they keep working with a shared
+  # cache across a failover instead of each silently falling back to its own in-process one. Each
+  # instance needs its own conf file — see redis/sentinel-1.conf's comment. UNVERIFIED.
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: redis-sentinel-1
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel-1.conf:/etc/redis/sentinel.conf
+    depends_on:
+      - redis
+      - redis-replica
+    networks:
+      - orbital-net
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: redis-sentinel-2
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel-2.conf:/etc/redis/sentinel.conf
+    depends_on:
+      - redis
+      - redis-replica
+    networks:
+      - orbital-net
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: redis-sentinel-3
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel-3.conf:/etc/redis/sentinel.conf
+    depends_on:
+      - redis
+      - redis-replica
+    networks:
+      - orbital-net
 
   # Monitoring - Prometheus
   prometheus:
@@ -195,8 +340,11 @@ services:
 #create volumes, persist between execution
 volumes:
   postgres_market_data:
+  postgres_market_replica_data:
   postgres_news_data:
+  postgres_news_replica_data:
   redis_data:
+  redis_replica_data:
   prometheus_data:
   grafana_data:
   pgadmin_data:

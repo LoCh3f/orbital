@@ -1,6 +1,8 @@
 package com.orbital.market.plugins
 
 import com.orbital.market.api.CoinGeckoClient
+import com.orbital.market.persistence.MarketRepository
+import com.orbital.models.CoinPrice
 import com.orbital.plugins.configureSerialization
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -13,12 +15,14 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 
 private val TEST_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -148,5 +152,34 @@ class RoutingTest {
     val body = response.bodyAsText()
     assertTrue(body.contains("\"BTC\""))
     assertTrue(body.contains("\"DOGE\""))
+  }
+
+  @Test
+  fun `history route returns a coin's stored price snapshots`() = runBlocking {
+    MarketRepository.initDatabase(
+        "jdbc:h2:mem:routing-history-${System.nanoTime()};MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
+        "sa",
+        "")
+    MarketRepository.saveAll(
+        listOf(
+            CoinPrice(
+                coinId = "bitcoin",
+                symbol = "BTC",
+                name = "Bitcoin",
+                currentPriceUsd = 65000.0,
+                marketCapUsd = 1_000_000.0,
+                volume24hUsd = 500_000.0,
+                priceChangePercent24h = 2.35,
+                lastUpdated = Instant.parse("2024-01-01T00:00:00Z"))))
+
+    testApplication {
+      application {
+        configureSerialization()
+        configureRouting(TEST_SCOPE, coinGeckoClient { VALID_COIN_JSON })
+      }
+      val response = client.get("/api/v1/market/history/bitcoin")
+      assertEquals(HttpStatusCode.OK, response.status)
+      assertTrue(response.bodyAsText().contains("65000.0"))
+    }
   }
 }
