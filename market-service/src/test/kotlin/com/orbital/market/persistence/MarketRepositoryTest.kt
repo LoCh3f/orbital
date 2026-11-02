@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.orbital.models.CoinPrice
+import java.sql.DriverManager
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -92,5 +93,61 @@ class MarketRepositoryTest {
 
     assertTrue(MarketRepository.hasHistory("bitcoin"))
     assertEquals(false, MarketRepository.hasHistory("ethereum"))
+  }
+
+  /**
+   * Regression test for the audit question of whether `(coin_id, last_updated)` actually gets added
+   * to a database that already had `market_prices` *without* that index — i.e. an already running
+   * deployment being upgraded to this code, not a fresh one. `createMissingTablesAndColumns` is not
+   * guaranteed across every Exposed version to retroactively add indexes to existing tables, so
+   * this is verified directly against the pinned version (0.41.1) rather than assumed.
+   */
+  @Test
+  fun `initDatabase adds the missing index to a table that predates it`() = runBlocking {
+    val url = testDbUrl()
+
+    // Create the table by hand, matching the pre-index schema, before Exposed ever touches it.
+    DriverManager.getConnection(url, "sa", "").use { connection ->
+      connection.createStatement().use { statement ->
+        statement.execute(
+            """
+            CREATE TABLE market_prices (
+              id VARCHAR(36) PRIMARY KEY,
+              coin_id VARCHAR(64) NOT NULL,
+              symbol VARCHAR(16) NOT NULL,
+              name VARCHAR(128) NOT NULL,
+              current_price_usd DOUBLE PRECISION NOT NULL,
+              market_cap_usd DOUBLE PRECISION NOT NULL,
+              volume_24h_usd DOUBLE PRECISION NOT NULL,
+              price_change_percent_24h DOUBLE PRECISION NOT NULL,
+              last_updated BIGINT NOT NULL
+            )
+            """
+                .trimIndent())
+      }
+    }
+
+    MarketRepository.initDatabase(url, "sa", "")
+
+    val indexFound =
+        DriverManager.getConnection(url, "sa", "").use { connection ->
+          connection.metaData.getIndexInfo(null, null, "MARKET_PRICES", false, false).use { rs ->
+            val columnsByIndex = mutableMapOf<String, MutableSet<String>>()
+            while (rs.next()) {
+              val indexName = rs.getString("INDEX_NAME")
+              val columnName = rs.getString("COLUMN_NAME")
+              if (indexName != null && columnName != null) {
+                columnsByIndex.getOrPut(indexName) { mutableSetOf() }.add(columnName.uppercase())
+              }
+            }
+            columnsByIndex.values.any { it.containsAll(setOf("COIN_ID", "LAST_UPDATED")) }
+          }
+        }
+
+    assertTrue(
+        indexFound,
+        "Exposed's createMissingTablesAndColumns did not add the (coin_id, last_updated) index " +
+            "to a table that predates it — an already-running deployment needs an explicit " +
+            "migration, this doesn't happen automatically on upgrade.")
   }
 }

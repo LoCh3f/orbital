@@ -1,3 +1,5 @@
+@file:Suppress("TooGenericExceptionCaught")
+
 package com.orbital.gateway
 
 import com.orbital.plugins.configureMetrics
@@ -18,6 +20,7 @@ import io.ktor.server.plugins.ratelimit.RateLimit
 import io.ktor.server.response.respond
 import java.net.URI
 import kotlin.time.Duration.Companion.minutes
+import org.slf4j.LoggerFactory
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPool
 import redis.clients.jedis.JedisSentinelPool
@@ -25,6 +28,7 @@ import redis.clients.jedis.util.Pool
 
 private const val REQUESTS_PER_MINUTE = 60
 private const val RATE_LIMIT_WINDOW_SECONDS = 60
+private val logger = LoggerFactory.getLogger("GatewayRateLimit")
 
 /** Starts the gateway's Netty server on port 8080. */
 fun main() {
@@ -33,16 +37,19 @@ fun main() {
 }
 
 /**
- * Wires up serialization, health/metrics, request tracing, rate limiting, CORS, and the proxy
- * routes.
+ * Wires up serialization, health/metrics, request tracing, CORS, rate limiting, and the proxy
+ * routes. CORS is installed before rate limiting on purpose: both hook into the same `Plugins`
+ * pipeline phase, in installation order, so a request rejected by the rate limiter still needs CORS
+ * to have run first — otherwise a browser client sees an opaque CORS failure instead of the real
+ * `429`.
  */
 fun Application.module() {
   configureSerialization()
   configureMonitoring("gateway")
   configureMetrics("gateway")
   configureRequestTracing()
-  configureRateLimit(trustProxyHeaders = trustProxyHeadersFromEnv())
   configureCors()
+  configureRateLimit(trustProxyHeaders = trustProxyHeadersFromEnv())
   configureRouting()
 }
 
@@ -51,7 +58,7 @@ fun Application.module() {
  * during local development. Set `CORS_ALLOWED_HOST` to restrict to a single HTTPS origin in
  * production deployments.
  */
-private fun Application.configureCors() {
+internal fun Application.configureCors() {
   install(CORS) {
     // Permissive by default (local dev, docker-compose — nothing sets this var there).
     // Set CORS_ALLOWED_HOST (e.g. "loch3f.github.io") to restrict to a specific origin.
@@ -149,6 +156,11 @@ internal class JedisRedisOps(private val pool: Pool<Jedis>) : RedisOps {
  * [RateLimiter] that enforces [limit] requests per [windowSeconds] by incrementing one shared Redis
  * counter per client key via [ops] — this is what makes the limit global across every gateway
  * replica instead of per-replica (see [configureRateLimit]'s doc comment).
+ *
+ * Fails open: if [ops] throws (Redis/Sentinel unreachable, a failover in progress, …), the call is
+ * allowed through rather than rejected. Every other Redis-backed piece of this gateway
+ * ([RedisCache]) already fails open the same way on a read failure — a Redis outage should degrade
+ * rate limiting and caching, not take down 100% of traffic with it.
  */
 internal class RedisRateLimiter(
     private val ops: RedisOps,
@@ -156,7 +168,12 @@ internal class RedisRateLimiter(
     private val windowSeconds: Int
 ) : RateLimiter {
   override fun tryAcquire(key: String): Boolean =
-      ops.incrWithExpire("ratelimit:$key", windowSeconds) <= limit
+      try {
+        ops.incrWithExpire("ratelimit:$key", windowSeconds) <= limit
+      } catch (e: Exception) {
+        logger.warn("Rate limiter check failed for key '$key', failing open (allowing request)", e)
+        true
+      }
 }
 
 /**

@@ -30,4 +30,17 @@ class RedisRateLimiterTest {
     assertFalse(limiter.tryAcquire("client-a"))
     assertFalse(limiter.tryAcquire("client-b"))
   }
+
+  @Test
+  fun `fails open when the backing store throws`() {
+    @Suppress("TooGenericExceptionThrown")
+    val throwingOps =
+        object : RedisOps {
+          override fun incrWithExpire(key: String, windowSeconds: Int): Long =
+              throw RuntimeException("redis unreachable")
+        }
+    val limiter = RedisRateLimiter(throwingOps, limit = 1, windowSeconds = 60)
+
+    assertTrue(limiter.tryAcquire("client-a"))
+  }
 }
