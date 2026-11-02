@@ -60,7 +60,7 @@ services:
       - JAVA_OPTS=-Xmx512m
       - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
       - DB_USER=market_user
-      - DB_PASSWORD=market_pass
+      - DB_PASSWORD=${POSTGRES_MARKET_PASSWORD:-market_pass}
       - REDIS_URL=redis://redis:6379
       - MARKET_API_KEY=${MARKET_API_KEY}
     depends_on:
@@ -84,7 +84,7 @@ services:
     environment:
       - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
       - DB_USER=market_user
-      - DB_PASSWORD=market_pass
+      - DB_PASSWORD=${POSTGRES_MARKET_PASSWORD:-market_pass}
       - INGEST_INTERVAL_MS=60000
     depends_on:
       - postgres-market
@@ -104,7 +104,7 @@ services:
       - JAVA_OPTS=-Xmx512m
       - DB_URL=jdbc:postgresql://postgres-news:5432/news_data
       - DB_USER=news_user
-      - DB_PASSWORD=news_pass
+      - DB_PASSWORD=${POSTGRES_NEWS_PASSWORD:-news_pass}
       - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
       - REDIS_MASTER_NAME=mymaster
       - REDIS_URL=redis://redis:6379
@@ -130,7 +130,7 @@ services:
     environment:
       POSTGRES_DB: market_data
       POSTGRES_USER: market_user
-      POSTGRES_PASSWORD: market_pass
+      POSTGRES_PASSWORD: ${POSTGRES_MARKET_PASSWORD:-market_pass}
       REPLICATION_USER: replicator
       REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
     ports:
@@ -177,7 +177,7 @@ services:
     environment:
       POSTGRES_DB: news_data
       POSTGRES_USER: news_user
-      POSTGRES_PASSWORD: news_pass
+      POSTGRES_PASSWORD: ${POSTGRES_NEWS_PASSWORD:-news_pass}
       REPLICATION_USER: replicator
       REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_pass}
     ports:
@@ -308,7 +308,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
@@ -327,7 +327,7 @@ services:
       - postgres-news
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@local.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_ADMIN_PASSWORD:-admin}
     ports:
       - "5050:80"
     restart: unless-stopped
