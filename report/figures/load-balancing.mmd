@@ -1,0 +1,15 @@
+graph TB
+    Client["clients"]
+    LB["gateway-lb (nginx)\nre-resolves DNS per request"]
+    G1["gateway #1"]
+    G2["gateway #2"]
+    G3["gateway #3"]
+    Redis[("Redis\ncache + rate-limit counters")]
+
+    Client --> LB
+    LB --> G1
+    LB --> G2
+    LB --> G3
+    G1 --> Redis
+    G2 --> Redis
+    G3 --> Redis
