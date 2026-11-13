@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.orbital.app.data.HistoryPoint
+import io.orbital.app.data.HistoryRequest
+import io.orbital.app.data.HistorySeries
 import io.orbital.app.data.MarketPrice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -86,6 +88,7 @@ private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 fun marketSection(
     fetchMarketPrices: suspend () -> List<MarketPrice>,
     fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)? = null,
+    fetchHistoryRange: (suspend (HistoryRequest) -> HistorySeries)? = null,
     visible: Boolean = true
 ) {
   var state by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
@@ -128,7 +131,8 @@ fun marketSection(
         searchQuery = searchQuery,
         onSearchQueryChange = { searchQuery = it },
         onRefresh = { scope.launch { refresh() } },
-        fetchPriceHistory = fetchPriceHistory)
+        fetchPriceHistory = fetchPriceHistory,
+        fetchHistoryRange = fetchHistoryRange)
   }
 }
 
@@ -140,7 +144,8 @@ fun marketScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onRefresh: () -> Unit,
-    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)? = null
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)? = null,
+    fetchHistoryRange: (suspend (HistoryRequest) -> HistorySeries)? = null
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
     refreshError?.let {
@@ -185,7 +190,9 @@ fun marketScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              items(filtered, key = { it.coinId }) { coin -> coinPriceRow(coin, fetchPriceHistory) }
+              items(filtered, key = { it.coinId }) { coin ->
+                coinPriceRow(coin, fetchPriceHistory, fetchHistoryRange)
+              }
             }
       }
     }
@@ -216,7 +223,8 @@ private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPri
 @Composable
 private fun coinPriceRow(
     coin: MarketPrice,
-    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?,
+    fetchHistoryRange: (suspend (HistoryRequest) -> HistorySeries)?
 ) {
   var expanded by remember(coin.coinId) { mutableStateOf(false) }
   Card(
@@ -229,7 +237,7 @@ private fun coinPriceRow(
           CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
           coinSummaryRow(coin)
-          if (expanded) coinExpandedDetails(coin, fetchPriceHistory)
+          if (expanded) coinExpandedDetails(coin, fetchPriceHistory, fetchHistoryRange)
         }
       }
 }
@@ -283,8 +291,14 @@ private fun coinSummaryRow(coin: MarketPrice) {
 @Composable
 private fun coinExpandedDetails(
     coin: MarketPrice,
-    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?,
+    fetchHistoryRange: (suspend (HistoryRequest) -> HistorySeries)?
 ) {
+  if (fetchHistoryRange != null) {
+    historyExplorer(coin.coinId, fetchHistoryRange)
+    return
+  }
+  Text("Archive range controls are available in the backend-connected app.")
   var history by remember(coin.coinId) { mutableStateOf<List<HistoryPoint>>(emptyList()) }
   LaunchedEffect(coin.coinId) {
     if (fetchPriceHistory != null) {
