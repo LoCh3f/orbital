@@ -118,7 +118,7 @@ urls:
 	@echo "Market:      http://localhost:8081"
 	@echo "News:        http://localhost:8082"
 	@echo "Prometheus:  http://localhost:9090"
-	@echo "Grafana:     http://localhost:3000 (admin/admin)"
+	@echo "Grafana:     http://localhost:3000 (optional admin profile)"
 	@echo "pgAdmin:     http://localhost:5050"
 
 # --- Gradle / backend ---
