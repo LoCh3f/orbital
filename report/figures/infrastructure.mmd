@@ -1,0 +1,24 @@
+graph TB
+    Client["orbital-app<br/>(desktop + web)"]
+    LB["gateway-lb<br/>(nginx)"]
+    GW["gateway"]
+    MS["market-service"]
+    NS["news-service"]
+    MI["market-ingestor<br/>(worker)"]
+    PGM[("postgres-market<br/>+ replica")]
+    PGN[("postgres-news<br/>+ replica")]
+    REDIS[("redis<br/>+ sentinel quorum")]
+    MON["prometheus + grafana"]
+
+    Client --> LB --> GW
+    GW --> MS
+    GW --> NS
+    GW --> REDIS
+    MS --> PGM
+    MS --> REDIS
+    NS --> PGN
+    NS --> REDIS
+    MI --> PGM
+    MON -.->|scrapes /metrics| GW
+    MON -.->|scrapes /metrics| MS
+    MON -.->|scrapes /metrics| NS

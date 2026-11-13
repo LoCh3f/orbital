@@ -20,6 +20,10 @@ private const val TOP_N_COINS = 100
  * the full app uses [MarketApiClient] against the gateway instead.
  */
 class CoinGeckoMarketApiClient(private val client: HttpClient = createHttpClient()) {
+  fun close() {
+    client.close()
+  }
+
   suspend fun fetchMarketPrices(): List<MarketPrice> {
     val response: HttpResponse =
         client.get("$COINGECKO_BASE_URL/coins/markets") {

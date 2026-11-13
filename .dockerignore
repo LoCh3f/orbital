@@ -1,0 +1,16 @@
+.git
+.gradle
+.kotlin
+**/build
+**/node_modules
+.env
+.env.*
+!.env.example
+report
+*.zip
+*.key
+*.p12
+*.jks
+.agents
+.codex
+.aws

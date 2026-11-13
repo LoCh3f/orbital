@@ -15,7 +15,9 @@ object NewsMapper {
    */
   fun toDomain(article: NewsApiArticle, category: NewsCategory): NewsArticle =
       NewsArticle(
-          id = UUID.randomUUID(),
+          id =
+              UUID.nameUUIDFromBytes(
+                  (article.url + ":" + category.name).toByteArray(Charsets.UTF_8)),
           title = article.title.ifBlank { "Untitled" },
           description = article.description.orEmpty(),
           url = article.url,

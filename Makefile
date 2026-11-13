@@ -31,7 +31,7 @@ help:
 	@echo "Gradle / backend:"
 	@echo "  gradle-build       ./gradlew build"
 	@echo "  test               ./gradlew test"
-	@echo "  lint               ./gradlew ktfmtFormat detekt"
+	@echo "  lint               ./gradlew ktfmtCheck detekt"
 	@echo "  format             ./gradlew ktfmtFormat"
 	@echo "  docs               Generate API docs (Dokka) to build/dokka/htmlMultiModule"
 	@echo ""
@@ -118,7 +118,7 @@ urls:
 	@echo "Market:      http://localhost:8081"
 	@echo "News:        http://localhost:8082"
 	@echo "Prometheus:  http://localhost:9090"
-	@echo "Grafana:     http://localhost:3000 (admin/admin)"
+	@echo "Grafana:     http://localhost:3000 (optional admin profile)"
 	@echo "pgAdmin:     http://localhost:5050"
 
 # --- Gradle / backend ---
@@ -129,7 +129,7 @@ test:
 	./gradlew test
 
 lint:
-	./gradlew ktfmtFormat detekt
+	./gradlew ktfmtCheck detekt
 
 format:
 	./gradlew ktfmtFormat

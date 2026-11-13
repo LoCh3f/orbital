@@ -8,6 +8,11 @@ plugins {
 }
 allprojects {
     group = "com.orbital"
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "io.netty") useVersion("4.1.140.Final")
+        }
+    }
     version = "1.2.1" // x-release-please-version
 
     repositories {
@@ -32,12 +37,4 @@ subprojects {
     apply(plugin = "com.diffplug.spotless")
     apply(plugin = "org.jetbrains.dokka")
 
-    plugins.withType<org.gradle.api.plugins.JavaPlugin> {
-        tasks.named("ktfmtCheckMain") {
-            dependsOn(tasks.named("ktfmtFormatMain"))
-        }
-        tasks.named("detekt") {
-            dependsOn(tasks.named("ktfmtFormatMain"))
-        }
-    }
 }

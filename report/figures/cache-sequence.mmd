@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant C as Client
+    participant G as Gateway
+    participant R as Redis
+    participant M as market-service
+    participant CG as CoinGecko
+
+    C->>G: GET /api/v1/market/prices
+    G->>R: GET market:prices:...
+
+    alt cache hit
+        R-->>G: cached JSON
+        G-->>C: 200 OK (cached)
+    else cache miss
+        R-->>G: nil
+        G->>M: GET /api/v1/market/prices
+        M->>CG: GET /coins/markets
+        CG-->>M: live data
+        M-->>G: 200 OK
+        G->>R: SETEX market:prices:... (TTL)
+        G-->>C: 200 OK (live)
+    end

@@ -9,6 +9,7 @@ import com.orbital.plugins.configureSerialization
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
@@ -16,10 +17,11 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.origin
-import io.ktor.server.plugins.ratelimit.RateLimit
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import java.net.URI
-import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPool
@@ -91,19 +93,14 @@ internal fun Application.configureRateLimit(
     rateLimiter: RateLimiter? = defaultRateLimiter()
 ) {
   if (trustProxyHeaders) install(XForwardedHeaders)
-  if (rateLimiter != null) {
-    intercept(ApplicationCallPipeline.Plugins) {
+  val effectiveLimiter = rateLimiter ?: LocalRateLimiter()
+  environment.monitor.subscribe(ApplicationStopped) { effectiveLimiter.close() }
+  intercept(ApplicationCallPipeline.Plugins) {
+    if (call.request.path() !in setOf("/health", "/ready", "/metrics")) {
       val key = call.request.origin.remoteHost
-      if (!rateLimiter.tryAcquire(key)) {
+      if (!withContext(Dispatchers.IO) { effectiveLimiter.tryAcquire(key) }) {
         call.respond(HttpStatusCode.TooManyRequests)
         finish()
-      }
-    }
-  } else {
-    install(RateLimit) {
-      global {
-        rateLimiter(limit = REQUESTS_PER_MINUTE, refillPeriod = 1.minutes)
-        requestKey { call -> call.request.origin.remoteHost }
       }
     }
   }
@@ -113,13 +110,17 @@ private fun trustProxyHeadersFromEnv(): Boolean =
     System.getenv("TRUST_PROXY_HEADERS")?.equals("true", ignoreCase = true) == true
 
 /** Enforces a request limit for a given client [key], shared across however it's backed. */
-internal interface RateLimiter {
+internal interface RateLimiter : AutoCloseable {
+  override fun close() {}
+
   /** Returns true if the call is allowed, false if [key] has exceeded the limit for this window. */
   fun tryAcquire(key: String): Boolean
 }
 
 /** The handful of Redis operations [RedisRateLimiter] needs — narrowed for testability. */
-internal interface RedisOps {
+internal interface RedisOps : AutoCloseable {
+  override fun close() {}
+
   /**
    * Atomically increments the counter at [key], setting it to expire after [windowSeconds] the
    * first time it's created, and returns the post-increment count.
@@ -135,6 +136,10 @@ internal interface RedisOps {
  * key past its intended window.
  */
 internal class JedisRedisOps(private val pool: Pool<Jedis>) : RedisOps {
+  override fun close() {
+    pool.close()
+  }
+
   override fun incrWithExpire(key: String, windowSeconds: Int): Long =
       pool.resource.use { jedis ->
         jedis.eval(INCR_AND_EXPIRE_SCRIPT, listOf(key), listOf(windowSeconds.toString()))
@@ -167,6 +172,10 @@ internal class RedisRateLimiter(
     private val limit: Int,
     private val windowSeconds: Int
 ) : RateLimiter {
+  override fun close() {
+    ops.close()
+  }
+
   override fun tryAcquire(key: String): Boolean =
       try {
         ops.incrWithExpire("ratelimit:$key", windowSeconds) <= limit
@@ -194,3 +203,21 @@ private fun defaultRateLimiter(): RateLimiter? {
         JedisRedisOps(JedisPool(URI(it))), REQUESTS_PER_MINUTE, RATE_LIMIT_WINDOW_SECONDS)
   }
 }
+
+/** Bounded development fallback with the same fixed-window policy as Redis. */
+private class LocalRateLimiter : RateLimiter {
+  private val windows = linkedMapOf<String, Pair<Long, Int>>()
+
+  @Synchronized
+  override fun tryAcquire(key: String): Boolean {
+    val now = System.currentTimeMillis() / MILLIS_PER_SECOND
+    val current = windows[key]?.takeIf { now - it.first < RATE_LIMIT_WINDOW_SECONDS }
+    if (current == null && windows.size >= MAX_CLIENT_WINDOWS) windows.remove(windows.keys.first())
+    val next = (current?.first ?: now) to ((current?.second ?: 0) + 1)
+    windows[key] = next
+    return next.second <= REQUESTS_PER_MINUTE
+  }
+}
+
+private const val MILLIS_PER_SECOND = 1000L
+private const val MAX_CLIENT_WINDOWS = 1000

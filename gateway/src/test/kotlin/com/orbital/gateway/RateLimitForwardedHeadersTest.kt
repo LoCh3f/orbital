@@ -73,4 +73,17 @@ class RateLimitForwardedHeadersTest {
     assertEquals(HttpStatusCode.TooManyRequests, response.status)
     assertNotNull(response.headers[HttpHeaders.AccessControlAllowOrigin])
   }
+
+  @Test
+  fun `exhausted public budget does not block liveness`() = testApplication {
+    application {
+      configureRateLimit(
+          false,
+          object : RateLimiter {
+            override fun tryAcquire(key: String) = false
+          })
+      routing { get("/health") { call.respondText("ok") } }
+    }
+    assertEquals(HttpStatusCode.OK, client.get("/health").status)
+  }
 }

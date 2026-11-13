@@ -49,6 +49,16 @@ object NewsTable : Table("news") {
 
 /** Exposed/HikariCP-backed persistence for [NewsTable]. */
 object NewsRepository {
+  private var dataSource: HikariDataSource? = null
+
+  fun close() {
+    dataSource?.close()
+    dataSource = null
+  }
+
+  suspend fun isReady(): Boolean =
+      withContext(Dispatchers.IO) { dataSource?.connection?.use { it.isValid(1) } ?: false }
+
   private val logger = LoggerFactory.getLogger("NewsRepository")
 
   /** Connects to Postgres and creates [NewsTable] if it doesn't already exist. */
@@ -59,26 +69,25 @@ object NewsRepository {
           this.username = user
           this.password = password
           maximumPoolSize = 3
+          connectionTimeout = 3_000
+          validationTimeout = 1_000
           isAutoCommit = false
           transactionIsolation = "TRANSACTION_REPEATABLE_READ"
         }
     val ds = HikariDataSource(config)
+    dataSource?.close()
+    dataSource = ds
     Database.connect(ds)
     transaction { SchemaUtils.createMissingTablesAndColumns(NewsTable) }
   }
 
-  /**
-   * Inserts one row per article inside a single transaction, catching and logging (never throwing)
-   * any per-row failure. On H2 (used in tests), execution continues past a failed statement; on
-   * Postgres, a failed insert aborts the whole surrounding transaction, so in production a single
-   * bad row can take the rest of the batch down with it — the caller's own catch still prevents
-   * this from failing the response, but rows are not independently committed.
-   */
+  /** Atomically persists a batch. Any invalid row aborts and propagates the failure. */
   suspend fun saveAll(articles: List<NewsArticle>) =
       withContext(Dispatchers.IO) {
         transaction {
           for (a in articles) {
             val id = a.id.toString()
+            if (NewsTable.select { NewsTable.id eq id }.count() > 0) continue
             try {
               NewsTable.insert {
                 it[NewsTable.id] = id
@@ -91,6 +100,7 @@ object NewsRepository {
               }
             } catch (e: Exception) {
               logger.warn("Failed to persist article id='$id' sourceName='${a.sourceName}'", e)
+              throw e
             }
           }
         }

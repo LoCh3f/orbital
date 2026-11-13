@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -27,7 +28,8 @@ class MarketSectionStateTest {
     }
 
     waitForIdle()
-    onNodeWithText("Search ticker or protocol...").performTextInput("btc")
+    onNodeWithContentDescription("Search markets").assertExists()
+    onNodeWithText("Search markets").performTextInput("btc")
     waitForIdle()
     onNodeWithText("btc").assertExists()
 
@@ -37,5 +39,14 @@ class MarketSectionStateTest {
     waitForIdle()
 
     onNodeWithText("btc").assertExists()
+  }
+
+  @OptIn(ExperimentalTestApi::class)
+  @Test
+  fun `initial failure has retry without claiming data is stale`() = runComposeUiTest {
+    setContent { marketSection(fetchMarketPrices = { error("offline") }) }
+    waitForIdle()
+    onNodeWithText("Unable to load market data: offline").assertExists()
+    onNodeWithText("Refresh failed. Displayed data may be stale.").assertDoesNotExist()
   }
 }

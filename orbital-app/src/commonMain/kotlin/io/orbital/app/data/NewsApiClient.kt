@@ -15,6 +15,7 @@ class NewsApiClient(
           .get("$baseUrl/api/v1/news") {
             if (!category.isNullOrBlank()) parameter("category", category)
           }
+          .checked()
           .body<NewsResponse>()
           .data
 }

@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.orbital.models.NewsArticle
 import com.orbital.models.NewsCategory
+import java.sql.DriverManager
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
@@ -17,8 +18,17 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
 
 class NewsRepositoryTest {
-  private fun testDbUrl() =
-      "jdbc:h2:mem:news-${System.nanoTime()};MODE=PostgreSQL;DB_CLOSE_DELAY=-1"
+  private fun testDbUrl(): String {
+    val postgres = System.getenv("TEST_POSTGRES_URL")
+    if (postgres != null) {
+      val schema = "review_" + System.nanoTime()
+      DriverManager.getConnection(postgres).use { connection ->
+        connection.createStatement().use { it.execute("CREATE SCHEMA $schema") }
+      }
+      return postgres + "&currentSchema=" + schema
+    }
+    return "jdbc:h2:mem:news-${System.nanoTime()};MODE=PostgreSQL;DB_CLOSE_DELAY=-1"
+  }
 
   private fun sampleArticle(title: String = "A normal headline"): NewsArticle =
       NewsArticle(
@@ -32,35 +42,42 @@ class NewsRepositoryTest {
 
   @Test
   fun `saveAll logs a warning when a row violates a column constraint`() = runBlocking {
-    NewsRepository.initDatabase(testDbUrl(), "sa", "")
+    NewsRepository.initDatabase(
+        testDbUrl(), System.getenv("TEST_DB_USER") ?: "sa", System.getenv("TEST_DB_PASSWORD") ?: "")
 
     val logger = LoggerFactory.getLogger("NewsRepository") as Logger
     val appender = ListAppender<ILoggingEvent>().apply { start() }
     logger.addAppender(appender)
 
     val tooLongSourceName = "X".repeat(300) // column is varchar(256)
-    NewsRepository.saveAll(listOf(sampleArticle().copy(sourceName = tooLongSourceName)))
+    runCatching {
+      NewsRepository.saveAll(listOf(sampleArticle().copy(sourceName = tooLongSourceName)))
+    }
 
     logger.detachAppender(appender)
     assertTrue(appender.list.any { it.level == Level.WARN })
   }
 
   @Test
-  fun `saveAll continues past a failing row on H2 (same-transaction isolation does not hold on Postgres)`() =
-      runBlocking {
-        NewsRepository.initDatabase(testDbUrl(), "sa", "")
+  fun `saveAll rolls back the entire invalid batch`() = runBlocking {
+    NewsRepository.initDatabase(
+        testDbUrl(), System.getenv("TEST_DB_USER") ?: "sa", System.getenv("TEST_DB_PASSWORD") ?: "")
 
-        val tooLongSourceName = "X".repeat(300)
-        NewsRepository.saveAll(
-            listOf(sampleArticle().copy(sourceName = tooLongSourceName), sampleArticle()))
+    val tooLongSourceName = "X".repeat(300)
+    val failed = runCatching {
+      NewsRepository.saveAll(
+          listOf(sampleArticle().copy(sourceName = tooLongSourceName), sampleArticle()))
+    }
+    assertTrue(failed.isFailure)
 
-        val count = transaction { NewsTable.selectAll().count() }
-        assertEquals(1, count)
-      }
+    val count = transaction { NewsTable.selectAll().count() }
+    assertEquals(0, count)
+  }
 
   @Test
   fun `getHistory returns most recent first, filtered by category when given`() = runBlocking {
-    NewsRepository.initDatabase(testDbUrl(), "sa", "")
+    NewsRepository.initDatabase(
+        testDbUrl(), System.getenv("TEST_DB_USER") ?: "sa", System.getenv("TEST_DB_PASSWORD") ?: "")
 
     NewsRepository.saveAll(
         listOf(
