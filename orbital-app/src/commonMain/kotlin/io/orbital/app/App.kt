@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,9 +38,12 @@ import io.orbital.app.ui.marketSection
 import io.orbital.app.ui.newsIcon
 import io.orbital.app.ui.newsScreen
 import io.orbital.app.ui.orbitalLogoMark
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private const val NEWS_REFRESH_INTERVAL_MS = 60_000L
 private val LOGO_SIZE = 28.dp
@@ -54,6 +58,7 @@ private enum class Section(val label: String) {
 fun orbitalApp() {
   val gatewayUrl = remember { defaultGatewayUrl() }
   val client = remember { createHttpClient() }
+  DisposableEffect(client) { onDispose { client.close() } }
   val marketApiClient = remember { MarketApiClient(baseUrl = gatewayUrl, client = client) }
   val newsApiClient = remember { NewsApiClient(baseUrl = gatewayUrl, client = client) }
   val scope = rememberCoroutineScope()
@@ -63,16 +68,26 @@ fun orbitalApp() {
   var newsSearchQuery by remember { mutableStateOf("") }
   var selectedNewsCategory by remember { mutableStateOf<String?>(null) }
 
-  suspend fun refreshNews() {
-    runCatching { newsApiClient.fetchNews(selectedNewsCategory) }
-        .onSuccess { newsState = UiState.Success(it) }
-        .onFailure { error ->
-          val previous = newsState
-          newsState =
-              if (previous is UiState.Success) previous
-              else UiState.Error(error.message ?: "Unknown error")
-        }
-  }
+  val refreshMutex = remember { Mutex() }
+  var refreshError by remember { mutableStateOf<String?>(null) }
+  suspend fun refreshNews() =
+      refreshMutex.withLock {
+        runCatching { newsApiClient.fetchNews(selectedNewsCategory) }
+            .onSuccess {
+              newsState = UiState.Success(it)
+              refreshError = null
+            }
+            .onFailure { error ->
+              if (error is CancellationException) throw error
+              val previous = newsState
+              refreshError =
+                  if (previous is UiState.Success) "Refresh failed. Displayed data may be stale."
+                  else null
+              newsState =
+                  if (previous is UiState.Success) previous
+                  else UiState.Error(error.message ?: "Unknown error")
+            }
+      }
 
   LaunchedEffect(selectedNewsCategory) {
     newsState = UiState.Loading
@@ -92,6 +107,7 @@ fun orbitalApp() {
             fetchPriceHistory = marketApiClient::fetchPriceHistory,
             visible = selectedSection == Section.MARKET)
         if (selectedSection == Section.NEWS) {
+
           newsScreen(
               newsState,
               filters =
@@ -100,7 +116,8 @@ fun orbitalApp() {
                       onCategoryChange = { selectedNewsCategory = it },
                       query = newsSearchQuery,
                       onQueryChange = { newsSearchQuery = it }),
-              onRefresh = { scope.launch { refreshNews() } })
+              onRefresh = { scope.launch { refreshNews() } },
+              refreshError = refreshError)
         }
       }
     }

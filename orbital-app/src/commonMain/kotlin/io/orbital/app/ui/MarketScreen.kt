@@ -36,6 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,9 +46,12 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.orbital.app.data.MarketPrice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private val CARD_SHAPE = RoundedCornerShape(12.dp)
 private val BADGE_SHAPE = RoundedCornerShape(4.dp)
@@ -85,16 +91,26 @@ fun marketSection(
   var searchQuery by remember { mutableStateOf("") }
   val scope = rememberCoroutineScope()
 
-  suspend fun refresh() {
-    runCatching { fetchMarketPrices() }
-        .onSuccess { state = UiState.Success(it) }
-        .onFailure { error ->
-          val previous = state
-          state =
-              if (previous is UiState.Success) previous
-              else UiState.Error(error.message ?: "Unknown error")
-        }
-  }
+  val refreshMutex = remember { Mutex() }
+  var refreshError by remember { mutableStateOf<String?>(null) }
+  suspend fun refresh() =
+      refreshMutex.withLock {
+        runCatching { fetchMarketPrices() }
+            .onSuccess {
+              state = UiState.Success(it)
+              refreshError = null
+            }
+            .onFailure { error ->
+              if (error is CancellationException) throw error
+              val previous = state
+              refreshError =
+                  if (previous is UiState.Success) "Refresh failed. Displayed data may be stale."
+                  else null
+              state =
+                  if (previous is UiState.Success) previous
+                  else UiState.Error(error.message ?: "Unknown error")
+            }
+      }
 
   LaunchedEffect(Unit) {
     while (isActive) {
@@ -104,7 +120,9 @@ fun marketSection(
   }
 
   if (visible) {
+
     marketScreen(
+        refreshError = refreshError,
         state = state,
         searchQuery = searchQuery,
         onSearchQueryChange = { searchQuery = it },
@@ -113,8 +131,10 @@ fun marketSection(
   }
 }
 
+@Suppress("LongParameterList") // UI callbacks and optional history adapter.
 @Composable
 fun marketScreen(
+    refreshError: String? = null,
     state: UiState<List<MarketPrice>>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -122,10 +142,18 @@ fun marketScreen(
     fetchPriceHistory: (suspend (String) -> List<Double>)? = null
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
+    refreshError?.let {
+      Text(it, Modifier.padding(12.dp))
+      Button(onClick = onRefresh) { Text("Retry refresh") }
+    }
     TextField(
         value = searchQuery,
         onValueChange = onSearchQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier =
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).semantics {
+              contentDescription = "Search markets"
+            },
+        label = { Text("Search markets") },
         placeholder = { Text("Search ticker or protocol...") },
         singleLine = true,
         shape = FIELD_SHAPE,
@@ -150,11 +178,13 @@ fun marketScreen(
       }
       is UiState.Success -> {
         val filtered = filterCoins(state.data, searchQuery)
+        if (filtered.isEmpty())
+            Text("No matching assets. Try another search.", Modifier.padding(16.dp))
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              items(filtered) { coin -> coinPriceRow(coin, fetchPriceHistory) }
+              items(filtered, key = { it.coinId }) { coin -> coinPriceRow(coin, fetchPriceHistory) }
             }
       }
     }
@@ -187,9 +217,12 @@ private fun coinPriceRow(
     coin: MarketPrice,
     fetchPriceHistory: (suspend (String) -> List<Double>)?
 ) {
-  var expanded by remember { mutableStateOf(false) }
+  var expanded by remember(coin.coinId) { mutableStateOf(false) }
   Card(
-      modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+      modifier =
+          Modifier.fillMaxWidth()
+              .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+              .clickable { expanded = !expanded },
       shape = CARD_SHAPE,
       colors =
           CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
