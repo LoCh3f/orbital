@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.0](https://github.com/LoCh3f/orbital/compare/v1.2.1...v1.3.0) (2026-10-12)
+
+
+### Features
+
+* **gateway,news-service:** add Redis Sentinel support for HA shared caching ([6012e23](https://github.com/LoCh3f/orbital/commit/6012e23aba4109e9a9409556332c8ae74c2141b8))
+* **gateway:** add nginx load balancer for horizontally scaled gateway replicas ([18a9638](https://github.com/LoCh3f/orbital/commit/18a9638024d548c9ed66390c5f39de54f2846c36))
+* **gateway:** add Redis-backed distributed rate limiter ([e151d77](https://github.com/LoCh3f/orbital/commit/e151d7745496198f3146b4cd29fb9f31ce4ecb43))
+* **gateway:** proxy news history, split proxy routes into functions ([8cacf6c](https://github.com/LoCh3f/orbital/commit/8cacf6c03c962bd16879111cbbf5bf9ec48db174))
+* **infra:** draft Postgres streaming replication for market/news primaries ([dd21dd4](https://github.com/LoCh3f/orbital/commit/dd21dd4677c1442761cd9b4ff4fec7aec2bf8feb))
+* **market-service:** add standalone ingestor worker for continuous price polling ([d1fe252](https://github.com/LoCh3f/orbital/commit/d1fe2525fad9912968facf48e312ee19ec5358c9))
+* **market-service:** backfill full CoinGecko history on first ingestion per coin ([d1fe252](https://github.com/LoCh3f/orbital/commit/d1fe2525fad9912968facf48e312ee19ec5358c9))
+* **market-service:** expose ingested price history via a new endpoint ([d1fe252](https://github.com/LoCh3f/orbital/commit/d1fe2525fad9912968facf48e312ee19ec5358c9))
+* **news-service:** persist and serve news read history ([ae2b323](https://github.com/LoCh3f/orbital/commit/ae2b32378db54908de862848fb351d4f1be667f5))
+* **orbital-app:** use ingested price history for the expanded coin chart ([d1fe252](https://github.com/LoCh3f/orbital/commit/d1fe2525fad9912968facf48e312ee19ec5358c9))
+
+
+### Bug Fixes
+
+* applied ktfmt ([dd92297](https://github.com/LoCh3f/orbital/commit/dd922970bf7c2e757c9f8efa26d17b5a44e63b8a))
+
+
+### Performance Improvements
+
+* **market-service:** index market_prices for faster history lookups ([98581c3](https://github.com/LoCh3f/orbital/commit/98581c32331c42f252c68f6ffaf93ff949571605))
+
 ## [1.2.1](https://github.com/LoCh3f/orbital/compare/v1.2.0...v1.2.1) (2026-10-02)
 
 
