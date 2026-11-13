@@ -2,6 +2,7 @@
 
 package com.orbital.market.persistence
 
+import com.orbital.market.history.HistoryRepository
 import com.orbital.models.CoinPrice
 import com.orbital.models.PriceHistoryPoint
 import com.zaxxer.hikari.HikariConfig
@@ -35,6 +36,7 @@ object MarketPriceTable : Table("market_prices") {
   val marketCapUsd: Column<Double> = double("market_cap_usd")
   val volume24hUsd: Column<Double> = double("volume_24h_usd")
   val priceChangePercent24h: Column<Double> = double("price_change_percent_24h")
+  val sampleInterval = long("sample_interval_seconds").default(86400L)
   val lastUpdated: Column<Long> = long("last_updated")
   override val primaryKey = PrimaryKey(id)
 
@@ -82,11 +84,14 @@ object MarketRepository {
     dataSource?.close()
     dataSource = ds
     Database.connect(ds)
-    transaction { SchemaUtils.createMissingTablesAndColumns(MarketPriceTable, BackfillTable) }
+    transaction {
+      SchemaUtils.createMissingTablesAndColumns(MarketPriceTable, BackfillTable)
+      HistoryRepository.initialize()
+    }
   }
 
   /** Atomically persists a batch. Any invalid row aborts and propagates the failure. */
-  suspend fun saveAll(prices: List<CoinPrice>) =
+  suspend fun saveAll(prices: List<CoinPrice>, intervalSeconds: Long = 900L) =
       withContext(Dispatchers.IO) {
         transaction {
           for (p in prices) {
@@ -111,6 +116,7 @@ object MarketRepository {
                 it[volume24hUsd] = p.volume24hUsd
                 it[priceChangePercent24h] = p.priceChangePercent24h
                 it[lastUpdated] = p.lastUpdated.epochSecond
+                it[sampleInterval] = intervalSeconds
               }
             } catch (e: Exception) {
               logger.warn("Failed to persist price snapshot for coinId='${p.coinId}'", e)
