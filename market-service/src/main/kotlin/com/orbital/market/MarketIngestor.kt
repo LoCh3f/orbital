@@ -1,28 +1,31 @@
-@file:Suppress("TooGenericExceptionCaught")
+@file:Suppress("TooGenericExceptionCaught", "MagicNumber")
 
 package com.orbital.market
 
 import com.orbital.market.api.CoinGeckoClient
-import com.orbital.market.api.CoinGeckoCryptoData
 import com.orbital.market.api.CoinGeckoMapper
+import com.orbital.market.history.HistoryQueue
+import com.orbital.market.history.HistoryRepository
+import com.orbital.market.history.HistoryWorker
 import com.orbital.market.persistence.MarketRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 
-private const val DEFAULT_INGEST_INTERVAL_MS = 60_000L
+private const val DEFAULT_INGEST_INTERVAL_MS = 900_000L
 private const val TOP_LIMIT = 20
 private const val DB_RETRY_BASE_MS = 2_000L
 private const val DB_RETRY_MAX_MS = 30_000L
-
-// Spacing between per-coin market_chart calls during backfill, to stay well under CoinGecko's
-// public-tier rate limit (one call per coin, run once per coin, ever — not on the polling loop).
-private const val BACKFILL_CALL_SPACING_MS = 4_000L
 
 private val logger = LoggerFactory.getLogger("MarketIngestor")
 
@@ -34,10 +37,8 @@ private val logger = LoggerFactory.getLogger("MarketIngestor")
  * optional — this process exists only to write to the DB — so it retries with backoff instead of
  * continuing without one.
  *
- * Before entering the polling loop, [backfillIfNeeded] is run once per coin: a coin seen for the
- * first time gets CoinGecko's full historical `market_chart` loaded into the same table, so the
- * detail chart has long history immediately instead of waiting weeks for the polling loop alone to
- * build it up. Already-backfilled coins are skipped on every later restart.
+ * The same tracked coins receive durable background history jobs. Binance archives supply the
+ * available USDT pair history; CoinGecko USD observations remain a separate, growing series.
  */
 fun main() = runBlocking {
   val jdbcUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://127.0.0.1:5432/orbital"
@@ -50,49 +51,54 @@ fun main() = runBlocking {
   val coinGeckoClient =
       CoinGeckoClient(
           HttpClient(CIO) {
+            install(HttpTimeout) {
+              requestTimeoutMillis = 20000
+              connectTimeoutMillis = 5000
+            }
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
           })
 
-  val topCoins =
-      runCatching { coinGeckoClient.getTopCryptos(TOP_LIMIT) }
-          .getOrElse { e ->
-            logger.warn("Could not list top coins for backfill, skipping it this run", e)
-            emptyList()
-          }
-  for (coin in topCoins) {
-    backfillIfNeeded(coinGeckoClient, coin)
-  }
+  launch { HistoryWorker(coinGeckoClient).run() }
 
   logger.info("Starting market ingestion loop, interval=${intervalMs}ms")
   while (true) {
     try {
-      val prices = coinGeckoClient.getTopCryptos(TOP_LIMIT).map(CoinGeckoMapper::toCoinPrice)
-      MarketRepository.saveAll(prices)
+      val topCoins = coinGeckoClient.getTopCryptos(TOP_LIMIT)
+      val prices = topCoins.map(CoinGeckoMapper::toCoinPrice)
+      withContext(Dispatchers.IO) {
+        HistoryRepository.track(
+            topCoins.map { it.id }, prices.associate { it.coinId to (it.symbol to it.name) })
+      }
+      MarketRepository.saveAll(prices, (intervalMs / 1000).coerceAtLeast(1))
+      for (coin in topCoins) {
+        if (withContext(Dispatchers.IO) {
+          HistoryRepository.pair(coin.id) == null && HistoryRepository.pairLookupDue(coin.id)
+        }) {
+          val pair = verifiedPairOrNull(coinGeckoClient, coin.id)
+          if (pair != null) withContext(Dispatchers.IO) { HistoryRepository.setPair(coin.id, pair) }
+          delay(4000)
+        }
+        withContext(Dispatchers.IO) {
+          if (HistoryRepository.pair(coin.id) != null)
+              HistoryQueue.enqueue(
+                  coin.id, "binance", 1501545600L, java.time.Instant.now().epochSecond, 86400L, 0)
+          HistoryQueue.enqueue(
+              coin.id,
+              "coingecko",
+              java.time.Instant.now().epochSecond - 31536000L,
+              java.time.Instant.now().epochSecond,
+              86400L,
+              0)
+        }
+      }
       logger.info("Persisted ${prices.size} price snapshots")
+    } catch (e: CancellationException) {
+      throw e
     } catch (e: Exception) {
       logger.warn("Ingestion cycle failed", e)
     }
     delay(intervalMs)
   }
-}
-
-/**
- * Loads [coin]'s full `market_chart` history into [MarketRepository] if it has none stored yet — a
- * no-op, with no CoinGecko call or delay, once that's already true. Waits
- * [BACKFILL_CALL_SPACING_MS] after an actual fetch (success or failure) to keep a run across many
- * not-yet-backfilled coins spaced out.
- */
-private suspend fun backfillIfNeeded(client: CoinGeckoClient, coin: CoinGeckoCryptoData) {
-  if (MarketRepository.hasHistory(coin.id)) return
-  try {
-    val chart = client.getMarketChart(coin.id)
-    val snapshots = CoinGeckoMapper.toHistorySnapshots(coin.id, coin.symbol, coin.name, chart)
-    MarketRepository.saveAll(snapshots)
-    logger.info("Backfilled ${snapshots.size} historical snapshots for '${coin.id}'")
-  } catch (e: Exception) {
-    logger.warn("Backfill failed for '${coin.id}'", e)
-  }
-  delay(BACKFILL_CALL_SPACING_MS)
 }
 
 /** Retries [MarketRepository.initDatabase] with capped linear backoff until it succeeds. */
@@ -110,3 +116,15 @@ private suspend fun connectWithRetry(jdbcUrl: String, user: String, password: St
     }
   }
 }
+
+/** A ticker lookup failure must not stop snapshots or other coins' archive imports. */
+private suspend fun verifiedPairOrNull(client: CoinGeckoClient, id: String): String? =
+    try {
+      client.verifiedBinancePair(id)
+    } catch (cancelled: CancellationException) {
+      throw cancelled
+    } catch (failure: Exception) {
+      logger.warn(
+          "Binance identity lookup delayed for coin={}: {}", id, failure.javaClass.simpleName)
+      null
+    }

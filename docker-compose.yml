@@ -54,6 +54,7 @@ services:
       - DB_USER=market_user
       - DB_PASSWORD=${POSTGRES_MARKET_PASSWORD:-market_pass}
       - REDIS_URL=redis://redis:6379
+      - COINGECKO_DEMO_API_KEY=${COINGECKO_DEMO_API_KEY:-}
       - MARKET_API_KEY=${MARKET_API_KEY}
     depends_on:
       - postgres-market
@@ -75,7 +76,8 @@ services:
       - DB_URL=jdbc:postgresql://postgres-market:5432/market_data
       - DB_USER=market_user
       - DB_PASSWORD=${POSTGRES_MARKET_PASSWORD:-market_pass}
-      - INGEST_INTERVAL_MS=60000
+      - COINGECKO_DEMO_API_KEY=${COINGECKO_DEMO_API_KEY:-}
+      - INGEST_INTERVAL_MS=${INGEST_INTERVAL_MS:-900000}
     depends_on:
       - postgres-market
     restart: unless-stopped
