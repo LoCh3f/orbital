@@ -1,5 +1,6 @@
 package com.orbital.plugins
 
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -43,4 +44,21 @@ fun Application.configureMetrics(serviceName: String): PrometheusMeterRegistry {
   routing { get("/metrics") { call.respond(registry.scrape()) } }
 
   return registry
+}
+
+/** Liveness stays independent of dependencies; readiness checks required dependencies. */
+fun Application.configureReadiness(check: suspend () -> Boolean) {
+  routing {
+    get("/ready") {
+      val ready =
+          try {
+            check()
+          } catch (_: Exception) {
+            false
+          }
+      call.respond(
+          if (ready) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
+          mapOf("status" to if (ready) "ready" else "unavailable"))
+    }
+  }
 }
