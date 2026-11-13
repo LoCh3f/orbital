@@ -31,7 +31,7 @@ help:
 	@echo "Gradle / backend:"
 	@echo "  gradle-build       ./gradlew build"
 	@echo "  test               ./gradlew test"
-	@echo "  lint               ./gradlew ktfmtFormat detekt"
+	@echo "  lint               ./gradlew ktfmtCheck detekt"
 	@echo "  format             ./gradlew ktfmtFormat"
 	@echo "  docs               Generate API docs (Dokka) to build/dokka/htmlMultiModule"
 	@echo ""
@@ -129,7 +129,7 @@ test:
 	./gradlew test
 
 lint:
-	./gradlew ktfmtFormat detekt
+	./gradlew ktfmtCheck detekt
 
 format:
 	./gradlew ktfmtFormat

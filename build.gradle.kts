@@ -37,12 +37,4 @@ subprojects {
     apply(plugin = "com.diffplug.spotless")
     apply(plugin = "org.jetbrains.dokka")
 
-    plugins.withType<org.gradle.api.plugins.JavaPlugin> {
-        tasks.named("ktfmtCheckMain") {
-            dependsOn(tasks.named("ktfmtFormatMain"))
-        }
-        tasks.named("detekt") {
-            dependsOn(tasks.named("ktfmtFormatMain"))
-        }
-    }
 }
