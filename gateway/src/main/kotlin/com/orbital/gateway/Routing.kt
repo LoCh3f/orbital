@@ -2,8 +2,10 @@
 
 package com.orbital.gateway
 
+import com.orbital.plugins.configureReadiness
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -13,6 +15,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.plugins.callid.callId
 import io.ktor.server.response.respond
@@ -22,6 +25,8 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPool
@@ -50,7 +55,9 @@ internal fun sentinelConfigFromEnv(): Pair<String, Set<String>>? {
  * Minimal string cache abstraction the gateway proxies through, backed by [RedisCache] or
  * [MemoryCache].
  */
-interface Cache {
+interface Cache : AutoCloseable {
+  override fun close() {}
+
   fun get(key: String): String?
 
   fun setex(key: String, ttlSeconds: Int, value: String)
@@ -63,6 +70,10 @@ interface Cache {
  * current master on failover) works here unchanged.
  */
 class RedisCache(private val pool: Pool<Jedis>) : Cache {
+  override fun close() {
+    pool.close()
+  }
+
   override fun get(key: String): String? = pool.resource.use { it.get(key) }
 
   override fun setex(key: String, ttlSeconds: Int, value: String) {
@@ -119,7 +130,7 @@ suspend fun proxyWithCache(
 ): Pair<HttpStatusCode, String> {
   val cached =
       try {
-        cache?.get(cacheKey)
+        withContext(Dispatchers.IO) { cache?.get(cacheKey) }
       } catch (e: Exception) {
         logger.warn("Cache read failed for key '$cacheKey', falling back to upstream fetch", e)
         null
@@ -137,7 +148,7 @@ suspend fun proxyWithCache(
   if (status.value in 200..299) {
     try {
       val toStore = "${status.value}\n$body"
-      cache?.setex(cacheKey, ttlSeconds, toStore)
+      withContext(Dispatchers.IO) { cache?.setex(cacheKey, ttlSeconds, toStore) }
     } catch (_: Exception) {
       // best-effort
     }
@@ -153,9 +164,23 @@ suspend fun proxyWithCache(
  * in-process [MemoryCache].
  */
 fun Application.configureRouting(
-    client: HttpClient = HttpClient(CIO),
+    client: HttpClient =
+        HttpClient(CIO) {
+          install(HttpTimeout) {
+            requestTimeoutMillis = 10_000
+            connectTimeoutMillis = 3_000
+          }
+        },
     cache: Cache? = defaultCache()
 ) {
+  environment.monitor.subscribe(ApplicationStopped) {
+    client.close()
+    cache?.close()
+  }
+  configureReadiness {
+    client.get("$MARKET_SERVICE_URL/ready").status.value == 200 &&
+        client.get("$NEWS_SERVICE_URL/ready").status.value == 200
+  }
   routing {
     get("/") { call.respond(mapOf("message" to "Orbital Gateway API")) }
 
