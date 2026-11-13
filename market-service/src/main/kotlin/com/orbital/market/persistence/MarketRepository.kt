@@ -3,6 +3,7 @@
 package com.orbital.market.persistence
 
 import com.orbital.models.CoinPrice
+import com.orbital.models.PriceHistoryPoint
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -44,8 +46,23 @@ object MarketPriceTable : Table("market_prices") {
   }
 }
 
+object BackfillTable : Table("market_backfills") {
+  val coinId = varchar("coin_id", 64)
+  override val primaryKey = PrimaryKey(coinId)
+}
+
 /** Exposed/HikariCP-backed persistence for [MarketPriceTable]. */
 object MarketRepository {
+  private var dataSource: HikariDataSource? = null
+
+  fun close() {
+    dataSource?.close()
+    dataSource = null
+  }
+
+  suspend fun isReady(): Boolean =
+      withContext(Dispatchers.IO) { dataSource?.connection?.use { it.isValid(1) } ?: false }
+
   private val logger = LoggerFactory.getLogger("MarketRepository")
 
   /** Connects to Postgres and creates [MarketPriceTable] if it doesn't already exist. */
@@ -56,28 +73,36 @@ object MarketRepository {
           this.username = user
           this.password = password
           maximumPoolSize = 3
+          connectionTimeout = 3_000
+          validationTimeout = 1_000
           isAutoCommit = false
           transactionIsolation = "TRANSACTION_REPEATABLE_READ"
         }
     val ds = HikariDataSource(config)
+    dataSource?.close()
+    dataSource = ds
     Database.connect(ds)
-    transaction { SchemaUtils.createMissingTablesAndColumns(MarketPriceTable) }
+    transaction { SchemaUtils.createMissingTablesAndColumns(MarketPriceTable, BackfillTable) }
   }
 
-  /**
-   * Inserts one row per price inside a single transaction, catching and logging (never throwing)
-   * any per-row failure. On H2 (used in tests), execution continues past a failed statement; on
-   * Postgres, a failed insert aborts the whole surrounding transaction, so in production a single
-   * bad row can take the rest of the batch down with it — the caller's own catch still prevents
-   * this from failing the response, but rows are not independently committed.
-   */
+  /** Atomically persists a batch. Any invalid row aborts and propagates the failure. */
   suspend fun saveAll(prices: List<CoinPrice>) =
       withContext(Dispatchers.IO) {
         transaction {
           for (p in prices) {
+            if (MarketPriceTable.select {
+                  (MarketPriceTable.coinId eq p.coinId) and
+                      (MarketPriceTable.lastUpdated eq p.lastUpdated.epochSecond)
+                }
+                .count() > 0)
+                continue
             try {
               MarketPriceTable.insert {
-                it[id] = java.util.UUID.randomUUID().toString()
+                it[id] =
+                    java.util.UUID.nameUUIDFromBytes(
+                            (p.coinId + ":" + p.lastUpdated.epochSecond).toByteArray(
+                                Charsets.UTF_8))
+                        .toString()
                 it[coinId] = p.coinId
                 it[symbol] = p.symbol
                 it[name] = p.name
@@ -89,6 +114,7 @@ object MarketRepository {
               }
             } catch (e: Exception) {
               logger.warn("Failed to persist price snapshot for coinId='${p.coinId}'", e)
+              throw e
             }
           }
         }
@@ -108,6 +134,31 @@ object MarketRepository {
               .map { it[MarketPriceTable.currentPriceUsd] }
               .reversed()
         }
+      }
+
+  suspend fun getTimestampedHistory(coinId: String): List<PriceHistoryPoint> =
+      withContext(Dispatchers.IO) {
+        transaction {
+          MarketPriceTable.select { MarketPriceTable.coinId eq coinId }
+              .orderBy(MarketPriceTable.lastUpdated, SortOrder.DESC)
+              .limit(MAX_HISTORY_POINTS)
+              .map {
+                PriceHistoryPoint(
+                    it[MarketPriceTable.lastUpdated], it[MarketPriceTable.currentPriceUsd])
+              }
+              .distinctBy { it.timestamp }
+              .reversed()
+        }
+      }
+
+  suspend fun backfillComplete(coinId: String): Boolean =
+      withContext(Dispatchers.IO) {
+        transaction { BackfillTable.select { BackfillTable.coinId eq coinId }.count() > 0 }
+      }
+
+  suspend fun markBackfillComplete(coinId: String) =
+      withContext(Dispatchers.IO) {
+        transaction { BackfillTable.insert { it[BackfillTable.coinId] = coinId } }
       }
 
   /** Whether any snapshot (live or backfilled) has been stored for [coinId] yet. */
