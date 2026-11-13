@@ -32,8 +32,18 @@ private fun groupThousands(value: Long): String {
   return grouped.toString()
 }
 
-fun formatUsd(value: Double): String {
-  val fixed = value.toFixedString(2)
+fun formatUsd(value: Double): String =
+    when {
+      !value.isFinite() -> "Unavailable"
+      value != 0.0 && abs(value) < MIN_PRICE_UNIT ->
+          if (value > 0) "<$0.00000001" else ">-$0.00000001"
+      abs(value) >= MAX_FIXED_PRICE -> "$" + value.toString()
+      else -> formatFixedUsd(value)
+    }
+
+private fun formatFixedUsd(value: Double): String {
+  val decimals = if (value != 0.0 && abs(value) < SMALL_PRICE_THRESHOLD) SMALL_PRICE_DECIMALS else 2
+  val fixed = value.toFixedString(decimals)
   val negative = fixed.startsWith("-")
   val unsigned = if (negative) fixed.substring(1) else fixed
   val dotIndex = unsigned.indexOf('.')
@@ -56,3 +66,9 @@ fun formatCompactUsd(value: Double): String {
     else -> formatUsd(value)
   }
 }
+
+private const val SMALL_PRICE_THRESHOLD = 0.01
+private const val SMALL_PRICE_DECIMALS = 8
+
+private const val MIN_PRICE_UNIT = 0.00000001
+private const val MAX_FIXED_PRICE = 1_000_000_000_000_000.0
