@@ -1,3 +1,5 @@
+@file:Suppress("TooGenericExceptionCaught")
+
 package com.orbital.gateway
 
 import com.orbital.plugins.configureMetrics
@@ -7,6 +9,7 @@ import com.orbital.plugins.configureSerialization
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
@@ -14,10 +17,12 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.origin
-import io.ktor.server.plugins.ratelimit.RateLimit
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import java.net.URI
-import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPool
 import redis.clients.jedis.JedisSentinelPool
@@ -25,6 +30,7 @@ import redis.clients.jedis.util.Pool
 
 private const val REQUESTS_PER_MINUTE = 60
 private const val RATE_LIMIT_WINDOW_SECONDS = 60
+private val logger = LoggerFactory.getLogger("GatewayRateLimit")
 
 /** Starts the gateway's Netty server on port 8080. */
 fun main() {
@@ -33,16 +39,19 @@ fun main() {
 }
 
 /**
- * Wires up serialization, health/metrics, request tracing, rate limiting, CORS, and the proxy
- * routes.
+ * Wires up serialization, health/metrics, request tracing, CORS, rate limiting, and the proxy
+ * routes. CORS is installed before rate limiting on purpose: both hook into the same `Plugins`
+ * pipeline phase, in installation order, so a request rejected by the rate limiter still needs CORS
+ * to have run first — otherwise a browser client sees an opaque CORS failure instead of the real
+ * `429`.
  */
 fun Application.module() {
   configureSerialization()
   configureMonitoring("gateway")
   configureMetrics("gateway")
   configureRequestTracing()
-  configureRateLimit(trustProxyHeaders = trustProxyHeadersFromEnv())
   configureCors()
+  configureRateLimit(trustProxyHeaders = trustProxyHeadersFromEnv())
   configureRouting()
 }
 
@@ -51,7 +60,7 @@ fun Application.module() {
  * during local development. Set `CORS_ALLOWED_HOST` to restrict to a single HTTPS origin in
  * production deployments.
  */
-private fun Application.configureCors() {
+internal fun Application.configureCors() {
   install(CORS) {
     // Permissive by default (local dev, docker-compose — nothing sets this var there).
     // Set CORS_ALLOWED_HOST (e.g. "loch3f.github.io") to restrict to a specific origin.
@@ -84,19 +93,14 @@ internal fun Application.configureRateLimit(
     rateLimiter: RateLimiter? = defaultRateLimiter()
 ) {
   if (trustProxyHeaders) install(XForwardedHeaders)
-  if (rateLimiter != null) {
-    intercept(ApplicationCallPipeline.Plugins) {
+  val effectiveLimiter = rateLimiter ?: LocalRateLimiter()
+  environment.monitor.subscribe(ApplicationStopped) { effectiveLimiter.close() }
+  intercept(ApplicationCallPipeline.Plugins) {
+    if (call.request.path() !in setOf("/health", "/ready", "/metrics")) {
       val key = call.request.origin.remoteHost
-      if (!rateLimiter.tryAcquire(key)) {
+      if (!withContext(Dispatchers.IO) { effectiveLimiter.tryAcquire(key) }) {
         call.respond(HttpStatusCode.TooManyRequests)
         finish()
-      }
-    }
-  } else {
-    install(RateLimit) {
-      global {
-        rateLimiter(limit = REQUESTS_PER_MINUTE, refillPeriod = 1.minutes)
-        requestKey { call -> call.request.origin.remoteHost }
       }
     }
   }
@@ -106,13 +110,17 @@ private fun trustProxyHeadersFromEnv(): Boolean =
     System.getenv("TRUST_PROXY_HEADERS")?.equals("true", ignoreCase = true) == true
 
 /** Enforces a request limit for a given client [key], shared across however it's backed. */
-internal interface RateLimiter {
+internal interface RateLimiter : AutoCloseable {
+  override fun close() {}
+
   /** Returns true if the call is allowed, false if [key] has exceeded the limit for this window. */
   fun tryAcquire(key: String): Boolean
 }
 
 /** The handful of Redis operations [RedisRateLimiter] needs — narrowed for testability. */
-internal interface RedisOps {
+internal interface RedisOps : AutoCloseable {
+  override fun close() {}
+
   /**
    * Atomically increments the counter at [key], setting it to expire after [windowSeconds] the
    * first time it's created, and returns the post-increment count.
@@ -128,6 +136,10 @@ internal interface RedisOps {
  * key past its intended window.
  */
 internal class JedisRedisOps(private val pool: Pool<Jedis>) : RedisOps {
+  override fun close() {
+    pool.close()
+  }
+
   override fun incrWithExpire(key: String, windowSeconds: Int): Long =
       pool.resource.use { jedis ->
         jedis.eval(INCR_AND_EXPIRE_SCRIPT, listOf(key), listOf(windowSeconds.toString()))
@@ -149,14 +161,28 @@ internal class JedisRedisOps(private val pool: Pool<Jedis>) : RedisOps {
  * [RateLimiter] that enforces [limit] requests per [windowSeconds] by incrementing one shared Redis
  * counter per client key via [ops] — this is what makes the limit global across every gateway
  * replica instead of per-replica (see [configureRateLimit]'s doc comment).
+ *
+ * Fails open: if [ops] throws (Redis/Sentinel unreachable, a failover in progress, …), the call is
+ * allowed through rather than rejected. Every other Redis-backed piece of this gateway
+ * ([RedisCache]) already fails open the same way on a read failure — a Redis outage should degrade
+ * rate limiting and caching, not take down 100% of traffic with it.
  */
 internal class RedisRateLimiter(
     private val ops: RedisOps,
     private val limit: Int,
     private val windowSeconds: Int
 ) : RateLimiter {
+  override fun close() {
+    ops.close()
+  }
+
   override fun tryAcquire(key: String): Boolean =
-      ops.incrWithExpire("ratelimit:$key", windowSeconds) <= limit
+      try {
+        ops.incrWithExpire("ratelimit:$key", windowSeconds) <= limit
+      } catch (e: Exception) {
+        logger.warn("Rate limiter check failed for key '$key', failing open (allowing request)", e)
+        true
+      }
 }
 
 /**
@@ -177,3 +203,21 @@ private fun defaultRateLimiter(): RateLimiter? {
         JedisRedisOps(JedisPool(URI(it))), REQUESTS_PER_MINUTE, RATE_LIMIT_WINDOW_SECONDS)
   }
 }
+
+/** Bounded development fallback with the same fixed-window policy as Redis. */
+private class LocalRateLimiter : RateLimiter {
+  private val windows = linkedMapOf<String, Pair<Long, Int>>()
+
+  @Synchronized
+  override fun tryAcquire(key: String): Boolean {
+    val now = System.currentTimeMillis() / MILLIS_PER_SECOND
+    val current = windows[key]?.takeIf { now - it.first < RATE_LIMIT_WINDOW_SECONDS }
+    if (current == null && windows.size >= MAX_CLIENT_WINDOWS) windows.remove(windows.keys.first())
+    val next = (current?.first ?: now) to ((current?.second ?: 0) + 1)
+    windows[key] = next
+    return next.second <= REQUESTS_PER_MINUTE
+  }
+}
+
+private const val MILLIS_PER_SECOND = 1000L
+private const val MAX_CLIENT_WINDOWS = 1000

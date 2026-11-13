@@ -3,6 +3,7 @@ plugins {
     kotlin("plugin.serialization")
 }
 dependencies {
+    api(libs.ktor.server.status.pages)
     // ktor
     api(libs.ktor.server.core)
     api(libs.ktor.server.content.negotiation)

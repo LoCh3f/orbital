@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val GRID_LINE_COUNT = 3
@@ -47,31 +49,59 @@ private fun indexForOffset(x: Float, width: Float, count: Int): Int {
 private fun Modifier.trackHover(
     points: List<Double>,
     widthPx: Float,
+    timestamps: List<Long>,
+    interaction: ChartInteraction,
     onHoverIndexChange: (Int?) -> Unit
 ): Modifier =
-    pointerInput(points, widthPx) {
+    pointerInput(points, widthPx, timestamps, interaction.from, interaction.to) {
       awaitPointerEventScope {
         while (true) {
           val event = awaitPointerEvent()
           val position = event.changes.firstOrNull()?.position
+          if (event.type == PointerEventType.Scroll &&
+              interaction.from != null &&
+              interaction.to != null) {
+            val span = interaction.to - interaction.from
+            val factor = if ((event.changes.firstOrNull()?.scrollDelta?.y ?: 0f) > 0) 2.0 else 0.5
+            val center = interaction.from + span / 2
+            val half = (span * factor / 2).toLong().coerceAtLeast(30)
+            interaction.onViewportChange?.invoke((center - half).coerceAtLeast(0), center + half)
+          }
           onHoverIndexChange(
               if (event.type == PointerEventType.Exit || position == null) null
-              else indexForOffset(position.x, widthPx, points.size))
+              else if (timestamps.size == points.size && timestamps.size > 1) {
+                val span = (timestamps.last() - timestamps.first()).coerceAtLeast(1).toDouble()
+                timestamps.indices.minByOrNull {
+                  abs((timestamps[it] - timestamps.first()) / span * widthPx - position.x)
+                }
+              } else indexForOffset(position.x, widthPx, points.size))
         }
       }
     }
 
+@Suppress(
+    "LongParameterList",
+    "CyclomaticComplexMethod") // Canvas geometry, gap segments, and hover rendering.
 private fun DrawScope.drawPriceChart(
     points: List<Double>,
     lineColor: Color,
     gridColor: Color,
     interactive: Boolean,
-    hoverIndex: Int?
+    hoverIndex: Int?,
+    timestamps: List<Long>,
+    interaction: ChartInteraction
 ) {
   val minValue = points.min()
   val maxValue = points.max()
   val range = (maxValue - minValue).let { if (it > 0) it else 1.0 }
   val stepX = if (points.size > 1) size.width / (points.size - 1) else 0f
+
+  fun xFor(index: Int): Float =
+      if (timestamps.size == points.size && timestamps.size > 1) {
+        ((timestamps[index] - timestamps.first()).toDouble() /
+                (timestamps.last() - timestamps.first()).coerceAtLeast(1) * size.width)
+            .toFloat()
+      } else index * stepX
 
   fun yFor(value: Double): Float =
       size.height - ((value - minValue) / range * size.height).toFloat()
@@ -90,9 +120,13 @@ private fun DrawScope.drawPriceChart(
   val linePath =
       Path().apply {
         points.forEachIndexed { i, v ->
-          val x = i * stepX
+          val x = xFor(i)
           val y = yFor(v)
-          if (i == 0) moveTo(x, y) else lineTo(x, y)
+          val gap =
+              i > 0 &&
+                  timestamps.size == points.size &&
+                  interaction.gaps.any { it.from > timestamps[i - 1] && it.to < timestamps[i] }
+          if (i == 0 || gap) moveTo(x, y) else lineTo(x, y)
         }
       }
   val fillPath =
@@ -103,18 +137,19 @@ private fun DrawScope.drawPriceChart(
         close()
       }
 
-  drawPath(
-      fillPath,
-      brush =
-          Brush.verticalGradient(
-              listOf(lineColor.copy(alpha = FILL_ALPHA_TOP), lineColor.copy(alpha = 0f))))
+  if (interaction.gaps.isEmpty())
+      drawPath(
+          fillPath,
+          brush =
+              Brush.verticalGradient(
+                  listOf(lineColor.copy(alpha = FILL_ALPHA_TOP), lineColor.copy(alpha = 0f))))
   drawPath(
       linePath,
       color = lineColor,
       style = Stroke(width = STROKE_WIDTH.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
 
   hoverIndex?.let { idx ->
-    val x = idx * stepX
+    val x = xFor(idx)
     val y = yFor(points[idx])
     drawLine(
         color = lineColor.copy(alpha = 0.4f),
@@ -133,13 +168,16 @@ private fun DrawScope.drawPriceChart(
  * is missing, so the embedded HTML never loads. wasmJs is unaffected (it renders in a real browser)
  * and keeps the TradingView implementation.
  */
+@Suppress("LongParameterList") // Platform chart contract includes timestamps.
 @Composable
 actual fun priceChart(
     modifier: Modifier,
     points: List<Double>,
     positive: Boolean,
     size: DpSize,
-    interactive: Boolean
+    interactive: Boolean,
+    timestamps: List<Long>,
+    interaction: ChartInteraction
 ) {
   val lineColor =
       if (positive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
@@ -151,14 +189,18 @@ actual fun priceChart(
     Canvas(
         modifier =
             Modifier.fillMaxSize().let { base ->
-              if (interactive) base.trackHover(points, widthPx) { hoverIndex = it } else base
+              if (interactive)
+                  base.trackHover(points, widthPx, timestamps, interaction) { hoverIndex = it }
+              else base
             }) {
-          drawPriceChart(points, lineColor, gridColor, interactive, hoverIndex)
+          drawPriceChart(
+              points, lineColor, gridColor, interactive, hoverIndex, timestamps, interaction)
         }
 
     hoverIndex?.let { idx ->
       Text(
-          formatUsd(points[idx]),
+          formatUsd(points[idx]) +
+              timestamps.getOrNull(idx)?.let { " · ${Instant.ofEpochSecond(it)}" }.orEmpty(),
           modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
           color = lineColor,
           fontSize = 11.sp)

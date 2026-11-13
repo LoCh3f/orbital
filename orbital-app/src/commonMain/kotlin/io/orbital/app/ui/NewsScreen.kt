@@ -31,6 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,14 +61,26 @@ data class NewsFilters(
 )
 
 @Composable
-fun newsScreen(state: UiState<List<NewsItem>>, filters: NewsFilters, onRefresh: () -> Unit) {
+fun newsScreen(
+    state: UiState<List<NewsItem>>,
+    filters: NewsFilters,
+    onRefresh: () -> Unit,
+    refreshError: String? = null
+) {
   Column(modifier = Modifier.fillMaxSize()) {
+    refreshError?.let {
+      Text(it, Modifier.padding(12.dp))
+      Button(onClick = onRefresh) { Text("Retry refresh") }
+    }
     categoryChips(filters.category, filters.onCategoryChange)
     TextField(
         value = filters.query,
         onValueChange = filters.onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        placeholder = { Text("Search news") },
+        modifier =
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).semantics {
+              contentDescription = "Search news"
+            },
+        label = { Text("Search news") },
         singleLine = true,
         shape = FIELD_SHAPE,
         colors = newsSearchFieldColors())
@@ -89,6 +104,9 @@ fun newsScreen(state: UiState<List<NewsItem>>, filters: NewsFilters, onRefresh: 
       }
       is UiState.Success -> {
         val filtered = filterArticles(state.data, filters.query)
+        Text("Demo news: synthetic articles", Modifier.padding(horizontal = 12.dp))
+        if (filtered.isEmpty())
+            Text("No matching news. Try another search.", Modifier.padding(16.dp))
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -144,6 +162,7 @@ private fun categoryChips(selectedCategory: String?, onCategorySelected: (String
 
 @Composable
 private fun newsArticleRow(article: NewsItem) {
+  val uriHandler = LocalUriHandler.current
   Card(
       modifier = Modifier.fillMaxWidth(),
       shape = CARD_SHAPE,
@@ -178,6 +197,12 @@ private fun newsArticleRow(article: NewsItem) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp)
+            Button(
+                onClick = {
+                  if (article.url.startsWith("https://")) uriHandler.openUri(article.url)
+                }) {
+                  Text("Read article")
+                }
             Text(
                 article.description,
                 modifier = Modifier.padding(top = 4.dp),

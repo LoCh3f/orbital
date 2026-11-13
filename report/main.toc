@@ -1,0 +1,83 @@
+\contentsline {section}{\numberline {1}Concept}{3}{section.1}%
+\contentsline {paragraph}{\nonumberline Use case.}{3}{paragraph*.3}%
+\contentsline {paragraph}{\nonumberline Why is distribution needed?}{4}{paragraph*.4}%
+\contentsline {section}{\numberline {2}Requirements Elicitation and Analysis}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Functional Requirements}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Non-functional Requirements}{5}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Implementation Choices}{6}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Relevant Distributed System Features}{7}{subsection.2.4}%
+\contentsline {paragraph}{\nonumberline Transparency.}{7}{paragraph*.5}%
+\contentsline {paragraph}{\nonumberline Fault tolerance, dependability.}{7}{paragraph*.6}%
+\contentsline {paragraph}{\nonumberline Scalability.}{7}{paragraph*.7}%
+\contentsline {paragraph}{\nonumberline Security, trust.}{7}{paragraph*.8}%
+\contentsline {paragraph}{\nonumberline Resource sharing.}{7}{paragraph*.9}%
+\contentsline {paragraph}{\nonumberline Openness, interoperability.}{7}{paragraph*.10}%
+\contentsline {paragraph}{\nonumberline Evolvability, maintainability.}{8}{paragraph*.11}%
+\contentsline {paragraph}{\nonumberline Performance, concurrency.}{8}{paragraph*.12}%
+\contentsline {paragraph}{\nonumberline Economy, costs.}{8}{paragraph*.13}%
+\contentsline {section}{\numberline {3}Design}{8}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Architecture}{8}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Infrastructure}{9}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Modelling}{10}{subsection.3.3}%
+\contentsline {subsubsection}{\numberline {3.3.1}Domain Entities}{10}{subsubsection.3.3.1}%
+\contentsline {subsubsection}{\numberline {3.3.2}The Backfill Gate}{10}{subsubsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.4}Interaction}{11}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Behaviour}{13}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Data and Consistency Issues}{13}{subsection.3.6}%
+\contentsline {subsubsection}{\numberline {3.6.1}CAP Theorem Position}{13}{subsubsection.3.6.1}%
+\contentsline {subsubsection}{\numberline {3.6.2}Consistency Model}{14}{subsubsection.3.6.2}%
+\contentsline {subsubsection}{\numberline {3.6.3}Shared Data and Synchronization}{14}{subsubsection.3.6.3}%
+\contentsline {subsection}{\numberline {3.7}Fault-Tolerance}{14}{subsection.3.7}%
+\contentsline {subsubsection}{\numberline {3.7.1}Service Isolation via Independent Databases}{14}{subsubsection.3.7.1}%
+\contentsline {subsubsection}{\numberline {3.7.2}Replication}{15}{subsubsection.3.7.2}%
+\contentsline {subsubsection}{\numberline {3.7.3}Fail-Open Cache and Rate Limiter}{15}{subsubsection.3.7.3}%
+\contentsline {subsubsection}{\numberline {3.7.4}Idempotent Backfill on Restart}{16}{subsubsection.3.7.4}%
+\contentsline {subsubsection}{\numberline {3.7.5}Database Connection Retry and Startup Ordering}{16}{subsubsection.3.7.5}%
+\contentsline {subsection}{\numberline {3.8}Availability}{16}{subsection.3.8}%
+\contentsline {subsubsection}{\numberline {3.8.1}Caching}{16}{subsubsection.3.8.1}%
+\contentsline {subsubsection}{\numberline {3.8.2}Load Balancing}{16}{subsubsection.3.8.2}%
+\contentsline {subsubsection}{\numberline {3.8.3}Network Partition Behaviour}{17}{subsubsection.3.8.3}%
+\contentsline {subsection}{\numberline {3.9}Security}{17}{subsection.3.9}%
+\contentsline {subsubsection}{\numberline {3.9.1}Current State}{17}{subsubsection.3.9.1}%
+\contentsline {subsubsection}{\numberline {3.9.2}Proposed Identity Design (Not Implemented)}{18}{subsubsection.3.9.2}%
+\contentsline {subsubsection}{\numberline {3.9.3}Proposed Authorization Model (Not Implemented)}{18}{subsubsection.3.9.3}%
+\contentsline {subsubsection}{\numberline {3.9.4}Keycloak's Own Fault Tolerance (Not Implemented)}{18}{subsubsection.3.9.4}%
+\contentsline {section}{\numberline {4}Implementation}{20}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Network Protocols and Data Representation}{20}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Data Persistence and Querying}{20}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Authentication and Authorization}{20}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Frontend Implementation}{20}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Containerization and Orchestration}{21}{subsection.4.5}%
+\contentsline {subsection}{\numberline {4.6}Technological Details}{21}{subsection.4.6}%
+\contentsline {section}{\numberline {5}Validation}{22}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Automatic Testing}{22}{subsection.5.1}%
+\contentsline {subsubsection}{\numberline {5.1.1}Test Infrastructure}{22}{subsubsection.5.1.1}%
+\contentsline {subsubsection}{\numberline {5.1.2}Test Coverage}{22}{subsubsection.5.1.2}%
+\contentsline {paragraph}{\nonumberline Market Data Ingestion and History (FR2, FR7).}{22}{paragraph*.14}%
+\contentsline {paragraph}{\nonumberline News Persistence and History (FR3, FR4).}{22}{paragraph*.15}%
+\contentsline {paragraph}{\nonumberline Gateway Caching and Rate Limiting (NFR1, NFR3, NFR4).}{23}{paragraph*.16}%
+\contentsline {paragraph}{\nonumberline Persistence Error Handling (NFR1-adjacent corner case).}{23}{paragraph*.17}%
+\contentsline {subsubsection}{\numberline {5.1.3}How to Run}{23}{subsubsection.5.1.3}%
+\contentsline {subsection}{\numberline {5.2}Acceptance Testing}{23}{subsection.5.2}%
+\contentsline {paragraph}{\nonumberline Rationale for manual testing.}{24}{paragraph*.18}%
+\contentsline {section}{\numberline {6}Deployment}{24}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Prerequisites}{24}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Installation from Scratch}{24}{subsection.6.2}%
+\contentsline {subsubsection}{\numberline {6.2.1}Docker Compose Services}{25}{subsubsection.6.2.1}%
+\contentsline {subsubsection}{\numberline {6.2.2}Startup Ordering and Health Checks}{26}{subsubsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.3}Rebuilding Individual Services}{26}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Schema Management}{26}{subsection.6.4}%
+\contentsline {section}{\numberline {7}User Guide}{26}{section.7}%
+\contentsline {section}{\numberline {8}Self-evaluation}{27}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Aldo Visconti}{27}{subsection.8.1}%
+\contentsline {paragraph}{\nonumberline Role.}{27}{paragraph*.19}%
+\contentsline {paragraph}{\nonumberline Strengths.}{27}{paragraph*.20}%
+\contentsline {paragraph}{\nonumberline Weaknesses and Limitations.}{27}{paragraph*.21}%
+\contentsline {section}{\numberline {9}Future works}{28}{section.9}%
+\contentsline {paragraph}{\nonumberline Automatic database failover.}{28}{paragraph*.22}%
+\contentsline {paragraph}{\nonumberline Verifying scalability under real load.}{28}{paragraph*.23}%
+\contentsline {paragraph}{\nonumberline Synchronous replication.}{28}{paragraph*.24}%
+\contentsline {paragraph}{\nonumberline Automated testing of \texttt {orbital-app}.}{28}{paragraph*.25}%
+\contentsline {paragraph}{\nonumberline Real news integration.}{28}{paragraph*.26}%
+\contentsline {paragraph}{\nonumberline Authentication and authorization.}{29}{paragraph*.27}%
+\providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file 

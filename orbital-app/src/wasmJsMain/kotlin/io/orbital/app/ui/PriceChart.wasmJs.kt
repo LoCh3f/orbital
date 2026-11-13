@@ -41,13 +41,16 @@ private fun injectGlobalScript(source: String) {
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
+@Suppress("LongParameterList") // Platform chart contract includes timestamps.
 @Composable
 actual fun priceChart(
     modifier: Modifier,
     points: List<Double>,
     positive: Boolean,
     size: DpSize,
-    interactive: Boolean
+    interactive: Boolean,
+    timestamps: List<Long>,
+    interaction: ChartInteraction
 ) {
   var ready by remember { mutableStateOf(chartsInjected) }
 
@@ -73,7 +76,21 @@ actual fun priceChart(
       },
       modifier = modifier.size(size),
       update = { element ->
-        callRenderSparkline(element, valuesCsv, positive, widthPx, heightPx, interactive)
+        callRenderSparkline(
+            element,
+            valuesCsv,
+            positive,
+            widthPx,
+            heightPx,
+            interactive,
+            timestamps.joinToString(","),
+            interaction.gaps.joinToString(",") { "${it.from}:${it.to}" },
+            interaction.from?.toDouble() ?: 0.0,
+            interaction.to?.toDouble() ?: 0.0,
+            { from, to ->
+              if (from.isFinite() && to.isFinite())
+                  interaction.onViewportChange?.invoke(from.toLong(), to.toLong())
+            })
       })
 }
 
@@ -87,7 +104,14 @@ private fun callRenderSparkline(
     positive: Boolean,
     width: Int,
     height: Int,
-    interactive: Boolean
+    interactive: Boolean,
+    timesCsv: String,
+    gapsCsv: String,
+    viewFrom: Double,
+    viewTo: Double,
+    onViewport: (Double, Double) -> Unit
 ) {
-  js("window.renderSparkline(element, valuesCsv, positive, width, height, interactive)")
+  js(
+      """window.renderSparkline(element, valuesCsv, positive, width, height,
+          interactive, timesCsv, gapsCsv, viewFrom, viewTo, onViewport)""")
 }

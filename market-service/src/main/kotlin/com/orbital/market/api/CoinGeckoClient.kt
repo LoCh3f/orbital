@@ -3,12 +3,17 @@ package com.orbital.market.api
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** CoinGecko's documented maximum `per_page` value for `/coins/markets`. */
 private const val MAX_PAGE_SIZE = 250
 
-/** Thin wrapper over CoinGecko's public `/coins/markets` endpoint. No API key required. */
+/** CoinGecko public API client, using a free Demo key when configured. */
 class CoinGeckoClient(private val client: HttpClient) {
   private val baseUrl = "https://api.coingecko.com/api/v3"
 
@@ -16,6 +21,9 @@ class CoinGeckoClient(private val client: HttpClient) {
   suspend fun getTopCryptos(limit: Int = 50): List<CoinGeckoCryptoData> {
     val response =
         client.get("$baseUrl/coins/markets") {
+          System.getenv("COINGECKO_DEMO_API_KEY")
+              ?.takeIf { it.isNotBlank() }
+              ?.let { header("x-cg-demo-api-key", it) }
           parameter("vs_currency", "usd")
           parameter("order", "market_cap_desc")
           parameter("per_page", limit)
@@ -30,6 +38,9 @@ class CoinGeckoClient(private val client: HttpClient) {
   suspend fun getCryptoDetails(id: String): CoinGeckoCryptoData? {
     val response =
         client.get("$baseUrl/coins/markets") {
+          System.getenv("COINGECKO_DEMO_API_KEY")
+              ?.takeIf { it.isNotBlank() }
+              ?.let { header("x-cg-demo-api-key", it) }
           parameter("vs_currency", "usd")
           parameter("ids", id)
           parameter("sparkline", false)
@@ -42,6 +53,9 @@ class CoinGeckoClient(private val client: HttpClient) {
     if (ids.isEmpty()) return emptyList()
     val response =
         client.get("$baseUrl/coins/markets") {
+          System.getenv("COINGECKO_DEMO_API_KEY")
+              ?.takeIf { it.isNotBlank() }
+              ?.let { header("x-cg-demo-api-key", it) }
           parameter("vs_currency", "usd")
           parameter("ids", ids.joinToString(","))
           parameter("per_page", ids.size.coerceAtMost(MAX_PAGE_SIZE))
@@ -52,16 +66,41 @@ class CoinGeckoClient(private val client: HttpClient) {
   }
 
   /**
-   * Fetches [id]'s historical price/market-cap/volume series over [days] (a day count, or `"max"`
-   * for the coin's full available history). Used for a one-time backfill, not the regular polling
-   * loop — CoinGecko's `/coins/markets` (used elsewhere in this client) can't return history.
+   * Fetches USD history within the public plan's available window (at most 365 days). Longer
+   * history is retained locally as subsequent observations arrive.
    */
-  suspend fun getMarketChart(id: String, days: String = "max"): CoinGeckoMarketChart {
+  suspend fun getMarketChart(id: String, days: String = "365"): CoinGeckoMarketChart {
     val response =
         client.get("$baseUrl/coins/$id/market_chart") {
+          System.getenv("COINGECKO_DEMO_API_KEY")
+              ?.takeIf { it.isNotBlank() }
+              ?.let { header("x-cg-demo-api-key", it) }
           parameter("vs_currency", "usd")
           parameter("days", days)
         }
     return response.body()
+  }
+  /** Only accept a Binance USDT ticker explicitly attributed to this CoinGecko coin ID. */
+  suspend fun verifiedBinancePair(id: String): String? {
+    val response =
+        client.get("$baseUrl/coins/$id/tickers") {
+          parameter("exchange_ids", "binance")
+          System.getenv("COINGECKO_DEMO_API_KEY")
+              ?.takeIf { it.isNotBlank() }
+              ?.let { header("x-cg-demo-api-key", it) }
+        }
+    if (response.status != io.ktor.http.HttpStatusCode.OK) return null
+    val body = response.body<JsonObject>()
+    return body["tickers"]?.jsonArray?.firstNotNullOfOrNull { value ->
+      val ticker = value.jsonObject
+      val base = ticker["base"]?.jsonPrimitive?.content.orEmpty()
+      val identityMatches =
+          ticker["coin_id"]?.jsonPrimitive?.content == id && base.matches(Regex("[A-Z0-9]{1,20}"))
+      if (identityMatches &&
+          ticker["target"]?.jsonPrimitive?.content == "USDT" &&
+          ticker["market"]?.jsonObject?.get("identifier")?.jsonPrimitive?.content == "binance")
+          base + "USDT"
+      else null
+    }
   }
 }

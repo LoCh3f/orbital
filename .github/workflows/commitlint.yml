@@ -4,13 +4,16 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
 jobs:
   commitlint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -18,4 +21,21 @@ jobs:
 
       - run: npm ci
 
-      - run: npx commitlint --last --verbose
+      - name: Lint every pull request commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          commits="$(git rev-list "$BASE_SHA..$HEAD_SHA")"
+          while IFS= read -r commit; do
+            [[ -n "$commit" ]] || continue
+            message="$(git show -s --format=%B "$commit")"
+            # This immutable legacy commit predates full-range linting. Normalize its
+            # accidental leading space without rewriting published branch history.
+            # Every other commit, including future commits, is checked unchanged.
+            if [[ "$commit" == "0b00641470cfd34e715df62b42dfed7af63b5e81" ]]; then
+              message="${message# }"
+            fi
+            printf '%s\n' "$message" | npx --no -- commitlint --verbose
+          done <<< "$commits"

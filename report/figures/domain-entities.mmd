@@ -1,0 +1,25 @@
+classDiagram
+    class MarketPrice {
+        +String id
+        +String coinId
+        +String symbol
+        +String name
+        +Double currentPriceUsd
+        +Double marketCapUsd
+        +Double volume24hUsd
+        +Double priceChangePercent24h
+        +Long lastUpdated
+    }
+
+    class NewsArticle {
+        +UUID id
+        +String title
+        +String description
+        +String url
+        +String sourceName
+        +Instant publishedAt
+        +NewsCategory category
+    }
+
+    note for MarketPrice "owned by market-service\nappend-only, one row per observation"
+    note for NewsArticle "owned by news-service\nappend-only, one row per observation"

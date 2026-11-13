@@ -3,7 +3,14 @@ name: Docker Build & Push
 on:
   push:
     branches: [ main, develop ]
+    tags: ["v*"]
     paths:
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradle.properties'
+      - '.dockerignore'
       - 'gateway/**'
       - 'market-service/**'
       - 'news-service/**'
@@ -11,8 +18,23 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/docker-build.yml'
 
+permissions:
+  contents: read
+
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew check
+
   docker:
+    needs: validate
     runs-on: ubuntu-latest
 
     permissions:
@@ -22,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [gateway, market-service, news-service]
+        service: [gateway, market-service, news-service, market-ingestor]
 
     steps:
     - uses: actions/checkout@v4
@@ -53,7 +75,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./${{ matrix.service }}/Dockerfile
+        file: ${{ matrix.service == 'market-ingestor' && './market-service/Dockerfile.ingestor' || format('./{0}/Dockerfile', matrix.service) }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}

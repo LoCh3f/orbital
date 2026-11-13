@@ -69,6 +69,6 @@ graph TB
     Grafana[Grafana] --> Prometheus
 ```
 
-`orbital-app` (Compose Multiplatform, desktop + web) talks only to the gateway, never to the backend services directly. All three backend services expose `/health` and `/metrics`; Prometheus scrapes all three and Grafana visualizes them.
+The full `orbital-app` client (desktop + web) talks to the gateway. The public market-only demo fetches CoinGecko directly. All three backend services expose `/health` and `/metrics`; Prometheus scrapes all three and Grafana visualizes them.
 
 For build/run/deploy instructions, see [README.md](README.md).

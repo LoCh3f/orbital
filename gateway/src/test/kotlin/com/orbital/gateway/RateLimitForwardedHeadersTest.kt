@@ -3,6 +3,7 @@ package com.orbital.gateway
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.plugins.origin
@@ -12,6 +13,7 @@ import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class RateLimitForwardedHeadersTest {
@@ -52,5 +54,36 @@ class RateLimitForwardedHeadersTest {
 
     val second = client.get("/__probe")
     assertEquals(HttpStatusCode.TooManyRequests, second.status)
+  }
+
+  @Test
+  fun `a 429 response still carries CORS headers`() = testApplication {
+    val limiter =
+        object : RateLimiter {
+          override fun tryAcquire(key: String): Boolean = false
+        }
+    application {
+      configureCors()
+      configureRateLimit(trustProxyHeaders = false, rateLimiter = limiter)
+      routing { get("/__probe") { call.respondText("ok") } }
+    }
+
+    val response = client.get("/__probe") { header(HttpHeaders.Origin, "https://example.com") }
+
+    assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    assertNotNull(response.headers[HttpHeaders.AccessControlAllowOrigin])
+  }
+
+  @Test
+  fun `exhausted public budget does not block liveness`() = testApplication {
+    application {
+      configureRateLimit(
+          false,
+          object : RateLimiter {
+            override fun tryAcquire(key: String) = false
+          })
+      routing { get("/health") { call.respondText("ok") } }
+    }
+    assertEquals(HttpStatusCode.OK, client.get("/health").status)
   }
 }

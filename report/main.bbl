@@ -1,0 +1,58 @@
+\begin{thebibliography}{1}
+
+\bibitem{brewer2000towards}
+Eric~A. Brewer.
+\newblock Towards robust distributed systems.
+\newblock In {\em Proceedings of the 19th Annual ACM Symposium on Principles of
+  Distributed Computing (PODC)}, 2000.
+
+\bibitem{coingecko2024api}
+{CoinGecko}.
+\newblock {CoinGecko API Documentation}.
+\newblock \url{https://www.coingecko.com/en/api/documentation}, 2024.
+\newblock Accessed: 2026.
+
+\bibitem{docker2024compose}
+{Docker, Inc.}
+\newblock {Docker Compose Documentation}.
+\newblock \url{https://docs.docker.com/compose/}, 2024.
+\newblock Accessed: 2026.
+
+\bibitem{gilbert2002brewer}
+Seth Gilbert and Nancy Lynch.
+\newblock Brewer's conjecture and the feasibility of consistent, available,
+  partition-tolerant web services.
+\newblock {\em ACM SIGACT News}, 33(2):51--59, 2002.
+
+\bibitem{ktor2024docs}
+{JetBrains s.r.o.}
+\newblock {Ktor Documentation}.
+\newblock \url{https://ktor.io/docs/}, 2024.
+\newblock Accessed: 2026.
+
+\bibitem{jones2015jwt}
+Michael Jones, John Bradley, and Nat Sakimura.
+\newblock {JSON Web Token (JWT)} --- rfc 7519.
+\newblock \url{https://datatracker.ietf.org/doc/html/rfc7519}, 2015.
+
+\bibitem{redis2024sentinel}
+{Redis, Inc.}
+\newblock {Redis Sentinel Documentation}.
+\newblock \url{https://redis.io/docs/management/sentinel/}, 2024.
+\newblock Accessed: 2026.
+
+\bibitem{sakimura2014oidc}
+Nat Sakimura, John Bradley, Michael~B. Jones, Breno de~Medeiros, and Chuck
+  Mortimore.
+\newblock {OpenID Connect Core 1.0}.
+\newblock \url{https://openid.net/specs/openid-connect-core-1_0.html}, 2014.
+
+\bibitem{postgresql2024docs}
+{The PostgreSQL Global Development Group}.
+\newblock {PostgreSQL 15 Documentation --- Chapter 27: High Availability, Load
+  Balancing, and Replication}.
+\newblock \url{https://www.postgresql.org/docs/15/high-availability.html},
+  2024.
+\newblock Accessed: 2026.
+
+\end{thebibliography}

@@ -7,9 +7,12 @@ import com.orbital.core.ExternalApiException
 import com.orbital.core.NotFoundException
 import com.orbital.market.api.CoinGeckoClient
 import com.orbital.market.api.CoinGeckoMapper
+import com.orbital.market.history.HistoryQueries
+import com.orbital.market.history.HistoryRepository
 import com.orbital.market.persistence.MarketRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -20,9 +23,9 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
 
 private const val TOP_LIMIT = 20
 
@@ -30,20 +33,47 @@ private const val TOP_LIMIT = 20
  * Registers `/health`, `/api/v1/market/prices`, `/api/v1/market/prices/{coinId}`,
  * `/api/v1/market/stats/{coinId}`, and `/api/v1/market/history/{coinId}`.
  */
+@Suppress("UnusedParameter") // Retained for source compatibility with existing callers.
 fun Application.configureRouting(
     appScope: CoroutineScope,
     coinGeckoClient: CoinGeckoClient =
         CoinGeckoClient(
             HttpClient(CIO) {
+              install(HttpTimeout) {
+                requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                connectTimeoutMillis = CONNECT_TIMEOUT_MS
+              }
               install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             })
 ) {
   routing {
     healthRoute()
-    pricesRoute(coinGeckoClient, appScope)
+    pricesRoute(coinGeckoClient)
     priceRoute(coinGeckoClient)
     statsRoute(coinGeckoClient)
     historyRoute()
+    get("/api/v1/market/history-range/{coinId}") {
+      val coin = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      val params = call.request.queryParameters
+      fun bound(name: String): Long? =
+          params[name]?.let {
+            it.toLongOrNull() ?: throw IllegalArgumentException("Invalid history bound")
+          }
+      val series =
+          withContext(Dispatchers.IO) {
+            HistoryQueries.query(
+                coin,
+                params["source"] ?: "auto",
+                bound("from"),
+                bound("to"),
+                params["range"] ?: "all")
+          }
+      call.respond(ApiResponse.Success(series))
+    }
+    get("/api/v1/market/history-points/{coinId}") {
+      val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      call.respond(ApiResponse.Success(MarketRepository.getTimestampedHistory(coinId)))
+    }
   }
 }
 
@@ -53,12 +83,10 @@ private fun Route.healthRoute() {
 
 /**
  * `GET /api/v1/market/prices` — top [TOP_LIMIT] coins by market cap, or exactly the coins named by
- * a comma-separated `coinIds` query param (regardless of their rank). Persists the fetched batch to
- * Postgres asynchronously (best-effort — a persistence failure is logged, never fails the
- * response).
+ * a comma-separated `coinIds` query param (regardless of their rank). The ingestion worker persists
+ * snapshots to Postgres independently of this read-only endpoint.
  */
-private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: CoroutineScope) {
-  val logger = LoggerFactory.getLogger("MarketRouting")
+private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient) {
 
   get("/api/v1/market/prices") {
     val coinIds =
@@ -78,14 +106,14 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient, appScope: Corout
 
     val payload = prices.getOrThrow().map(CoinGeckoMapper::toCoinPrice)
 
-    appScope.launch {
-      try {
-        MarketRepository.saveAll(payload)
-      } catch (e: Exception) {
-        logger.warn("Failed to persist market prices", e)
-      }
-    }
-
+    if (coinIds.isEmpty())
+        runCatching {
+          withContext(Dispatchers.IO) {
+            HistoryRepository.track(
+                payload.map { it.coinId },
+                payload.associate { it.coinId to (it.symbol to it.name) })
+          }
+        }
     call.respond(ApiResponse.Success(payload))
   }
 }
@@ -149,5 +177,8 @@ private suspend fun respondWithError(
         is ExternalApiException -> HttpStatusCode.BadGateway
         else -> HttpStatusCode.InternalServerError
       }
-  call.respond(status, ApiResponse.Error(status.value, error?.message ?: fallbackMessage))
+  call.respond(status, ApiResponse.Error(status.value, fallbackMessage))
 }
+
+private const val REQUEST_TIMEOUT_MS = 10_000L
+private const val CONNECT_TIMEOUT_MS = 3_000L

@@ -1,0 +1,10 @@
+flowchart TD
+    Start(["market-ingestor starts"]) --> Loop["for each top-N coin"]
+    Loop --> Check{"hasHistory(coinId)?"}
+    Check -->|yes| Skip["skip: no CoinGecko call"]
+    Check -->|no| Fetch["fetch market_chart\nfrom CoinGecko"]
+    Fetch --> Persist["persist full history\nto market_prices"]
+    Persist --> Next["next coin"]
+    Skip --> Next
+    Next --> Loop
+    Loop -->|all coins done| Poll(["enter polling loop\n(FR7)"])

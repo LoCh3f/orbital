@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant U as orbital-app
+    participant K as Keycloak
+    participant G as Gateway
+    participant S as Backend service
+
+    Note over U,S: Proposed design — not implemented (Section 3.9)
+
+    U->>K: Authorization Code + PKCE login
+    K-->>U: JWT (access token)
+    U->>G: request + Bearer JWT
+    G->>K: fetch JWKS (cached, TTL)
+    K-->>G: signing keys
+    G->>G: validate signature + claims
+    alt valid token
+        G->>S: proxy request
+        S-->>G: response
+        G-->>U: response
+    else invalid/missing token
+        G-->>U: 401 Unauthorized
+    end
