@@ -23,6 +23,10 @@
 
 \begin{document}
 
+% Relaxes line-breaking so long inline \texttt{} identifiers (market-ingestor,
+% postgres-market-replica, etc.) don't produce overfull hboxes running into the margin.
+\sloppy
+
 \maketitle
 
 \noindent
@@ -343,11 +347,19 @@ The infrastructure is composed of the following decoupled components, all orches
   \item \textbf{Administration:} pgAdmin, for inspecting both PostgreSQL instances.
 \end{itemize}
 
-\begin{quote}
-\textit{[A component diagram of this topology, covering the client, gateway-lb, gateway, the two
-backend services, the ingestor, both database pairs, the Redis/Sentinel cluster, and monitoring,
-would be inserted here.]}
-\end{quote}
+\begin{figure}
+\centering
+\IfFileExists{figures/infrastructure.png}{%
+  \includegraphics[width=0.9\textwidth]{figures/infrastructure.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/infrastructure.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/infrastructure.png}.
+  \vspace{1em}}}%
+}
+\caption{Infrastructure topology: client, edge, service, and persistence/cache layers.}
+\label{fig:infrastructure}
+\end{figure}
 
 All of these currently run on a single host, on one Docker bridge network
 (\texttt{orbital-net}); nothing in the design assumes same-host placement, but nothing in the
@@ -385,9 +397,19 @@ Both tables map to exactly one infrastructural location each: price snapshots li
 \emph{between} the two backend services, only within each one's own PostgreSQL primary/standby
 pair.
 
-\begin{quote}
-\textit{[An entity diagram of \texttt{market\_prices} and \texttt{news} would be inserted here.]}
-\end{quote}
+\begin{figure}
+\centering
+\IfFileExists{figures/domain-entities.png}{%
+  \includegraphics[width=0.7\textwidth]{figures/domain-entities.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/domain-entities.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/domain-entities.png}.
+  \vspace{1em}}}%
+}
+\caption{The two domain entities, each owned by one backend service.}
+\label{fig:domain-entities}
+\end{figure}
 
 \subsubsection{The Backfill Gate}\label{modelling-backfill-gate}
 
@@ -407,6 +429,20 @@ There is no equivalent gate on the regular polling loop, by design: each polling
 to append a fresh row regardless of what came before, since FR7's whole point is a continuously
 growing observation log, not a single current-value row to be kept idempotent against repeats.
 
+\begin{figure}
+\centering
+\IfFileExists{figures/backfill-gate.png}{%
+  \includegraphics[width=0.6\textwidth]{figures/backfill-gate.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/backfill-gate.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/backfill-gate.png}.
+  \vspace{1em}}}%
+}
+\caption{The backfill gate's decision logic on worker startup.}
+\label{fig:backfill-gate}
+\end{figure}
+
 \subsection{Interaction}\label{interaction}
 
 All interaction in Orbital is synchronous \textbf{request/response} over HTTP. The client
@@ -419,11 +455,19 @@ publish/subscribe or streaming pattern, since nothing in \cref{requirements} cal
 updates: the client's auto-refresh (FR5/FR6) is itself just a periodic pull, not a
 server-initiated push.
 
-\begin{quote}
-\textit{[A sequence diagram of a cached vs.\ uncached \texttt{GET /api/v1/market/prices} request,
-client $\to$ gateway $\to$ (cache hit, or market-service $\to$ CoinGecko), would be inserted
-here.]}
-\end{quote}
+\begin{figure}
+\centering
+\IfFileExists{figures/cache-sequence.png}{%
+  \includegraphics[width=0.85\textwidth]{figures/cache-sequence.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/cache-sequence.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/cache-sequence.png}.
+  \vspace{1em}}}%
+}
+\caption{A cached vs.\ uncached \texttt{GET /api/v1/market/prices} request.}
+\label{fig:cache-sequence}
+\end{figure}
 
 \subsection{Behaviour}\label{behaviour}
 
@@ -506,6 +550,20 @@ the standby, an accepted trade-off given this project's AP position, not an over
 similarly runs a primary/replica pair, monitored by a three-node Sentinel quorum (quorum size 2)
 that would promote the replica on a primary failure~\citep{redis2024sentinel}.
 
+\begin{figure}
+\centering
+\IfFileExists{figures/replication-ha.png}{%
+  \includegraphics[width=0.85\textwidth]{figures/replication-ha.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/replication-ha.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/replication-ha.png}.
+  \vspace{1em}}}%
+}
+\caption{PostgreSQL streaming replication and the Redis Sentinel quorum.}
+\label{fig:replication-ha}
+\end{figure}
+
 \subsubsection{Fail-Open Cache and Rate Limiter}\label{fault-tolerance-fail-open}
 
 Both the gateway's proxy cache and its distributed rate limiter are designed to \textbf{fail
@@ -558,6 +616,20 @@ actually reflected. This is paired with the Redis-backed distributed rate limite
 rate limit by the number of replicas, since Ktor's own built-in rate limiter keeps its counters
 in-process.
 
+\begin{figure}
+\centering
+\IfFileExists{figures/load-balancing.png}{%
+  \includegraphics[width=0.7\textwidth]{figures/load-balancing.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/load-balancing.mmd} (Mermaid source);
+  render it and save the result as \texttt{figures/load-balancing.png}.
+  \vspace{1em}}}%
+}
+\caption{Gateway replicas behind \texttt{gateway-lb}, sharing state only via Redis.}
+\label{fig:load-balancing}
+\end{figure}
+
 \subsubsection{Network Partition Behaviour}\label{availability-partitions}
 
 Two different partition scenarios are handled differently by design. A partition that isolates a
@@ -607,6 +679,20 @@ TTL, the same pattern already used elsewhere in the system for distributed state
 store, it composes cleanly with the horizontal-scalability work already done on the gateway: any
 number of gateway replicas behind the load balancer could validate tokens independently, with no
 new shared state and no new single point of failure introduced by the validation step itself.
+
+\begin{figure}
+\centering
+\IfFileExists{figures/keycloak-auth-flow.png}{%
+  \includegraphics[width=0.85\textwidth]{figures/keycloak-auth-flow.png}%
+}{%
+  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
+  \textit{Diagram not yet rendered.} See \texttt{figures/keycloak-auth-flow.mmd} (Mermaid
+  source); render it and save the result as \texttt{figures/keycloak-auth-flow.png}.
+  \vspace{1em}}}%
+}
+\caption{Proposed OIDC/JWT authentication flow (not implemented).}
+\label{fig:keycloak-auth-flow}
+\end{figure}
 
 \subsubsection{Proposed Authorization Model (Not Implemented)}\label{security-authz}
 
