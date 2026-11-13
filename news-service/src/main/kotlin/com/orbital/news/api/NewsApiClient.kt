@@ -3,6 +3,7 @@ package com.orbital.news.api
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -11,17 +12,17 @@ import kotlinx.serialization.json.Json
 
 private const val DEFAULT_PAGE_SIZE = 10
 
-/**
- * Wraps NewsAPI's `/v2/top-headlines` endpoint. **Never actually sends an API key**, so real
- * requests always 401 and every call falls back to [fallbackArticles] — this is a deliberate,
- * temporary state (real NewsAPI integration costs money and is intentionally deferred), not a bug.
- */
-class NewsApiClient(private val client: HttpClient = defaultClient()) {
-  /** Always returns [fallbackArticles] today; see the class doc for why. */
+/** Synthetic crypto feed by default; an injected HTTP client enables isolated provider tests. */
+class NewsApiClient(private val client: HttpClient? = null) {
+  /** Synthetic categories other than CRYPTO have no articles. */
   suspend fun fetchTopHeadlines(category: String? = null): List<NewsApiArticle> {
+    val activeClient = client
+    if (activeClient == null)
+        return if (category == null || category.equals("CRYPTO", true)) fallbackArticles()
+        else emptyList()
     return runCatching {
           val response =
-              client.get("https://newsapi.org/v2/top-headlines") {
+              activeClient.get("https://newsapi.org/v2/top-headlines") {
                 parameter("country", "us")
                 if (!category.isNullOrBlank()) parameter("category", category)
                 parameter("pageSize", DEFAULT_PAGE_SIZE)
@@ -56,7 +57,13 @@ class NewsApiClient(private val client: HttpClient = defaultClient()) {
 
   companion object {
     fun defaultClient(): HttpClient =
-        HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }
+        HttpClient(CIO) {
+          install(HttpTimeout) {
+            requestTimeoutMillis = REQUEST_TIMEOUT_MS
+            connectTimeoutMillis = CONNECT_TIMEOUT_MS
+          }
+          install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
   }
 }
 
@@ -79,3 +86,6 @@ data class NewsApiArticle(
 )
 
 @kotlinx.serialization.Serializable data class NewsApiSource(val name: String)
+
+private const val REQUEST_TIMEOUT_MS = 10_000L
+private const val CONNECT_TIMEOUT_MS = 3_000L
