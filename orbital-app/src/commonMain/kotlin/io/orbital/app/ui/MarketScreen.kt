@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.orbital.app.data.HistoryPoint
 import io.orbital.app.data.MarketPrice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -84,7 +85,7 @@ private const val MARKET_REFRESH_INTERVAL_MS = 30_000L
 @Composable
 fun marketSection(
     fetchMarketPrices: suspend () -> List<MarketPrice>,
-    fetchPriceHistory: (suspend (String) -> List<Double>)? = null,
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)? = null,
     visible: Boolean = true
 ) {
   var state by remember { mutableStateOf<UiState<List<MarketPrice>>>(UiState.Loading) }
@@ -139,7 +140,7 @@ fun marketScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onRefresh: () -> Unit,
-    fetchPriceHistory: (suspend (String) -> List<Double>)? = null
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)? = null
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
     refreshError?.let {
@@ -215,7 +216,7 @@ private fun filterCoins(coins: List<MarketPrice>, query: String): List<MarketPri
 @Composable
 private fun coinPriceRow(
     coin: MarketPrice,
-    fetchPriceHistory: (suspend (String) -> List<Double>)?
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?
 ) {
   var expanded by remember(coin.coinId) { mutableStateOf(false) }
   Card(
@@ -282,28 +283,37 @@ private fun coinSummaryRow(coin: MarketPrice) {
 @Composable
 private fun coinExpandedDetails(
     coin: MarketPrice,
-    fetchPriceHistory: (suspend (String) -> List<Double>)?
+    fetchPriceHistory: (suspend (String) -> List<HistoryPoint>)?
 ) {
-  var history by remember(coin.coinId) { mutableStateOf<List<Double>>(emptyList()) }
+  var history by remember(coin.coinId) { mutableStateOf<List<HistoryPoint>>(emptyList()) }
   LaunchedEffect(coin.coinId) {
     if (fetchPriceHistory != null) {
       runCatching { fetchPriceHistory(coin.coinId) }.onSuccess { if (it.size >= 2) history = it }
     }
   }
   // Prefer our own ingested history (grows past 7 days over time) over CoinGecko's sparkline.
-  val chartPoints = history.ifEmpty { coin.sparklineIn7d }
+  val chartPoints = if (history.isEmpty()) coin.sparklineIn7d else history.map { it.priceUsd }
+  Text(
+      if (history.isEmpty()) "7-day trend · relative sample spacing"
+      else "Stored observations · UTC",
+      Modifier.padding(8.dp))
 
   HorizontalDivider(
       modifier = Modifier.padding(vertical = 8.dp),
       color = MaterialTheme.colorScheme.outlineVariant)
   if (chartPoints.size >= 2) {
+    Text(
+        "${coin.name}: ${chartPoints.size} observations, " +
+            "from ${formatUsd(chartPoints.first())} to ${formatUsd(chartPoints.last())}",
+        Modifier.padding(8.dp))
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
       priceChart(
           modifier = Modifier,
           points = chartPoints,
           positive = coin.priceChangePercent24h >= 0,
           size = DpSize(maxWidth, DETAIL_CHART_HEIGHT),
-          interactive = true)
+          interactive = true,
+          timestamps = history.map { it.timestamp })
     }
   }
   Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
