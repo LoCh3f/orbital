@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ private val LOGO_SIZE = 28.dp
 @Composable
 fun orbitalMarketDemoApp() {
   val marketApiClient = remember { CoinGeckoMarketApiClient() }
+  DisposableEffect(marketApiClient) { onDispose { marketApiClient.close() } }
 
   MaterialTheme(colorScheme = ORBITAL_DARK_COLOR_SCHEME) {
     Scaffold(topBar = { orbitalDemoTopBar() }) { padding ->
