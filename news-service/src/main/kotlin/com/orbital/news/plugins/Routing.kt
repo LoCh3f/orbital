@@ -10,6 +10,7 @@ import com.orbital.news.api.NewsMapper
 import com.orbital.news.persistence.NewsRepository
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -17,7 +18,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.net.URI
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -27,7 +30,9 @@ import redis.clients.jedis.JedisSentinelPool
 import redis.clients.jedis.util.Pool
 
 /** Minimal read/write cache abstraction so the Redis-backed lookup is swappable in tests. */
-internal interface NewsCache {
+internal interface NewsCache : AutoCloseable {
+  override fun close() {}
+
   fun get(key: String): String?
 
   fun setex(key: String, ttlSeconds: Int, value: String)
@@ -38,6 +43,10 @@ internal interface NewsCache {
  * a [JedisSentinelPool] (see [defaultNewsCache]) works here unchanged.
  */
 internal class RedisNewsCache(private val pool: Pool<Jedis>) : NewsCache {
+  override fun close() {
+    pool.close()
+  }
+
   override fun get(key: String): String? = pool.resource.use { it.get(key) }
 
   override fun setex(key: String, ttlSeconds: Int, value: String) {
@@ -75,12 +84,17 @@ internal fun Application.configureRouting(
     newsApiClient: NewsApiClient = NewsApiClient(),
     cache: NewsCache? = defaultNewsCache()
 ) {
+  environment.monitor.subscribe(ApplicationStopped) { cache?.close() }
   val logger = LoggerFactory.getLogger("NewsRouting")
 
   routing {
     get("/api/v1/news") {
-      val category = call.request.queryParameters["category"]
-      val cacheKey = "news:category:${category ?: "all"}"
+      val category = call.request.queryParameters["category"]?.trim()?.uppercase()
+      if (category != null && NewsCategory.entries.none { it.name == category }) {
+        call.respond(HttpStatusCode.BadRequest, ApiResponse.Error(400, "Unknown news category"))
+        return@get
+      }
+      val cacheKey = "news-service:v1:category:${category ?: "all"}"
       val requestedCategory =
           category?.let { raw ->
             NewsCategory.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
@@ -88,7 +102,7 @@ internal fun Application.configureRouting(
 
       val cached =
           try {
-            cache?.get(cacheKey)
+            withContext(Dispatchers.IO) { cache?.get(cacheKey) }
           } catch (e: Exception) {
             logger.warn("Cache read failed for key '$cacheKey', falling back to upstream fetch", e)
             null
@@ -106,11 +120,9 @@ internal fun Application.configureRouting(
 
       val result = runCatching { newsApiClient.fetchTopHeadlines(category) }
       if (result.isFailure) {
-        val error = result.exceptionOrNull()
         call.respond(
             HttpStatusCode.BadGateway,
-            ApiResponse.Error(
-                HttpStatusCode.BadGateway.value, error?.message ?: "Failed to fetch news"))
+            ApiResponse.Error(HttpStatusCode.BadGateway.value, "Failed to fetch news"))
         return@get
       }
 
@@ -126,7 +138,7 @@ internal fun Application.configureRouting(
 
       try {
         val json = Json.encodeToString(ListSerializer(NewsArticle.serializer()), payload)
-        cache?.setex(cacheKey, 60, json)
+        withContext(Dispatchers.IO) { cache?.setex(cacheKey, 60, json) }
       } catch (e: Exception) {
         // best-effort cache
       }
@@ -154,8 +166,7 @@ private fun Route.historyRoute() {
       call.respond(
           HttpStatusCode.InternalServerError,
           ApiResponse.Error(
-              HttpStatusCode.InternalServerError.value,
-              result.exceptionOrNull()?.message ?: "Failed to fetch news history"))
+              HttpStatusCode.InternalServerError.value, "Failed to fetch news history"))
       return@get
     }
     call.respond(ApiResponse.Success(result.getOrThrow()))
