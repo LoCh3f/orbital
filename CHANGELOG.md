@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.4.0](https://github.com/LoCh3f/orbital/compare/v1.3.0...v1.4.0) (2026-11-13)
+
+
+### Features
+
+* **api:** serve timestamped history and selected source ranges ([a6a0793](https://github.com/LoCh3f/orbital/commit/a6a0793dd5629f1e9560f2f79bc60c030694e08f))
+* **app:** request history windows and preserve coverage metadata ([4b08c4e](https://github.com/LoCh3f/orbital/commit/4b08c4e52e4282086afa5ea76f011ef095494d4e))
+* **charts:** render true timestamps and split missing coverage ([7e6a461](https://github.com/LoCh3f/orbital/commit/7e6a461a316592ffafadacbbe90394f3c1c2b2de))
+* **history:** define series coverage and source contracts ([022ad66](https://github.com/LoCh3f/orbital/commit/022ad663838632d59a928d3bf13a3dcd2b19ff1f))
+* **history:** import archives in bounded resumable background batches ([e179164](https://github.com/LoCh3f/orbital/commit/e179164d3dacd65d8f43fd38adcf7df1bc85ef26))
+* **history:** initialize archive tables and record sample cadence ([4e028cb](https://github.com/LoCh3f/orbital/commit/4e028cb02462c098809dbbc2fcfd6abd830af468))
+* **history:** persist tracked coin mappings and resumable import jobs ([059e2c8](https://github.com/LoCh3f/orbital/commit/059e2c82c8ad35a017b449a45a5a5e87fd5dd39f))
+* **history:** sample full windows and report coverage gaps ([284631b](https://github.com/LoCh3f/orbital/commit/284631b1e1d4175b24c3606bd3baf1fc7cdca8f6))
+* **history:** verify and parse Binance public archive files ([1584980](https://github.com/LoCh3f/orbital/commit/15849800930afd6c0be58fb919061b42b4c39b85))
+* **market:** collect history only for the existing tracked universe ([d68fd67](https://github.com/LoCh3f/orbital/commit/d68fd67d1e6f489488c49f572df37c286cc403d5))
+* **market:** support Demo history and verified Binance identities ([1cafc48](https://github.com/LoCh3f/orbital/commit/1cafc48434e138776061960fbebf7313e49e2bff))
+* **ui:** add history ranges zoom and coverage indicators ([18891af](https://github.com/LoCh3f/orbital/commit/18891af43dd16660aa52165c62a751719b66778d))
+* **ui:** connect market details to the history explorer ([01571bd](https://github.com/LoCh3f/orbital/commit/01571bd6ac6974ae42368b2435ef437396257f65))
+
+
+### Bug Fixes
+
+* **web:** size the app to the mobile viewport ([7ce0590](https://github.com/LoCh3f/orbital/commit/7ce05901cea2dd8b2ed9f245169b01bf9a9a7b07))
+
 ## [1.3.0](https://github.com/LoCh3f/orbital/compare/v1.2.1...v1.3.0) (2026-10-12)
 
 
