@@ -5,6 +5,7 @@ package com.orbital.market
 import com.orbital.market.plugins.configureRouting
 import com.orbital.plugins.configureMetrics
 import com.orbital.plugins.configureMonitoring
+import com.orbital.plugins.configureReadiness
 import com.orbital.plugins.configureRequestTracing
 import com.orbital.plugins.configureSerialization
 import io.ktor.server.application.Application
@@ -49,5 +50,9 @@ fun Application.module() {
     logger.warn("DB init failed, continuing without DB", e)
   }
 
+  configureReadiness { com.orbital.market.persistence.MarketRepository.isReady() }
+  environment.monitor.subscribe(ApplicationStopped) {
+    com.orbital.market.persistence.MarketRepository.close()
+  }
   configureRouting(appScope)
 }
