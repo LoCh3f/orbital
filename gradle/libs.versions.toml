@@ -7,9 +7,9 @@ dokka = "1.9.20"
 shadow = "8.1.1"
 
 # Backend services (gateway/market-service/news-service/libs:core)
-ktor = "2.3.5"
+ktor = "2.3.13"
 
-# orbital-app only — deliberately newer, required for wasmJs client support (see CLAUDE.md).
+# orbital-app only — deliberately newer, required for wasmJs client support (see orbital-app/build.gradle.kts).
 # Do not unify with the backend's `ktor` version.
 ktorClient = "3.5.2"
 composeMultiplatform = "1.12.0"
@@ -21,16 +21,17 @@ kotlinxCoroutinesOrbital = "1.9.0"
 
 micrometer = "1.13.6"
 logstashEncoder = "7.4"
-logback = "1.5.13"
+logback = "1.6.6"
 kotlinxSerialization = "1.5.1"
 kotlinxCoroutines = "1.7.3"
 exposed = "0.41.1"
 hikari = "5.0.1"
-postgres = "42.6.0"
+postgres = "42.7.14"
 h2 = "2.3.232"
 jedis = "4.3.2"
 
 [libraries]
+ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages-jvm", version.ref = "ktor" }
 # Ktor server (backend)
 ktor-server-core = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
 ktor-server-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
