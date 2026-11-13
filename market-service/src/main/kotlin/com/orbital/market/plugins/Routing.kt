@@ -7,6 +7,8 @@ import com.orbital.core.ExternalApiException
 import com.orbital.core.NotFoundException
 import com.orbital.market.api.CoinGeckoClient
 import com.orbital.market.api.CoinGeckoMapper
+import com.orbital.market.history.HistoryQueries
+import com.orbital.market.history.HistoryRepository
 import com.orbital.market.persistence.MarketRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -21,6 +23,8 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 private const val TOP_LIMIT = 20
@@ -48,6 +52,28 @@ fun Application.configureRouting(
     priceRoute(coinGeckoClient)
     statsRoute(coinGeckoClient)
     historyRoute()
+    get("/api/v1/market/history-range/{coinId}") {
+      val coin = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      val params = call.request.queryParameters
+      fun bound(name: String): Long? =
+          params[name]?.let {
+            it.toLongOrNull() ?: throw IllegalArgumentException("Invalid history bound")
+          }
+      val series =
+          withContext(Dispatchers.IO) {
+            HistoryQueries.query(
+                coin,
+                params["source"] ?: "auto",
+                bound("from"),
+                bound("to"),
+                params["range"] ?: "all")
+          }
+      call.respond(ApiResponse.Success(series))
+    }
+    get("/api/v1/market/history-points/{coinId}") {
+      val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      call.respond(ApiResponse.Success(MarketRepository.getTimestampedHistory(coinId)))
+    }
   }
 }
 
@@ -80,6 +106,14 @@ private fun Route.pricesRoute(coinGeckoClient: CoinGeckoClient) {
 
     val payload = prices.getOrThrow().map(CoinGeckoMapper::toCoinPrice)
 
+    if (coinIds.isEmpty())
+        runCatching {
+          withContext(Dispatchers.IO) {
+            HistoryRepository.track(
+                payload.map { it.coinId },
+                payload.associate { it.coinId to (it.symbol to it.name) })
+          }
+        }
     call.respond(ApiResponse.Success(payload))
   }
 }

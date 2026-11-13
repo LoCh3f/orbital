@@ -184,6 +184,21 @@ fun Application.configureRouting(
   routing {
     get("/") { call.respond(mapOf("message" to "Orbital Gateway API")) }
 
+    get("/api/v1/market/history-points/{coinId}") {
+      val coinId = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      val response = client.get("$MARKET_SERVICE_URL/api/v1/market/history-points/$coinId")
+      call.respondText(response.bodyAsText(), ContentType.Application.Json, response.status)
+    }
+    get("/api/v1/market/history-range/{coinId}") {
+      val coin = call.parameters["coinId"] ?: throw IllegalArgumentException("Missing coin ID")
+      val response =
+          client.get("$MARKET_SERVICE_URL/api/v1/market/history-range/$coin") {
+            for (key in listOf("source", "range", "from", "to")) call.request.queryParameters[key]
+                ?.let { parameter(key, it) }
+            header(HttpHeaders.XRequestId, call.callId)
+          }
+      call.respondText(response.bodyAsText(), ContentType.Application.Json, response.status)
+    }
     marketPricesRoute(client, cache)
     marketHistoryRoute(client, cache)
     newsRoute(client, cache)
