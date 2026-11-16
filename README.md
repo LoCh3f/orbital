@@ -102,3 +102,9 @@ Binance series are labeled with their actual USDT pair; they are not merged into
 The public backend-free Pages demo retains its 7-day overview. Full archive controls require the backend-connected app, because imports and persistent storage run on the server.
 
 Binance-derived chart data is provided under the Binance Vision dataset terms, including attribution, non-commercial use and share-alike requirements. This is separate from the application's code license. See https://github.com/binance/binance-public-data/blob/master/TERMS_AND_CONDITIONS.md. CoinGecko source: https://www.coingecko.com/en/api.
+
+## Project report
+
+The canonical LaTeX source is [`report/main.tex`](report/main.tex), with the compiled report in [`report/main.pdf`](report/main.pdf). It records the reviewed implementation snapshot, provider coverage limits, operational controls, validation evidence, and proposed work.
+
+Build it with `make -C report pdf` after installing [Tectonic](https://tectonic-typesetting.github.io/) or latexmk with a TeX distribution. The build runs bibliography and reference passes. Checked-in diagram PNGs are sufficient for a PDF build; after editing their Mermaid sources, run `make -C report diagrams` with Mermaid CLI and Chromium installed. The root `Orbital_report-output (1).zip` contains the matching source, figures, and PDF for sharing.

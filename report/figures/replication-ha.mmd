@@ -1,7 +1,7 @@
 graph LR
     subgraph PG["PostgreSQL (per database)"]
         direction LR
-        Primary[("primary")] -->|streaming\nreplication, async| Standby[("standby")]
+        Primary[("primary")] -->|streaming<br/>replication, async| Standby[("standby")]
     end
 
     subgraph RD["Redis"]
@@ -9,13 +9,13 @@ graph LR
         S1["sentinel-1"]
         S2["sentinel-2"]
         S3["sentinel-3"]
-        RM[("redis\nmaster")]
-        RR[("redis\nreplica")]
+        RM[("redis<br/>master")]
+        RR[("redis<br/>replica")]
         S1 -.->|monitor| RM
         S2 -.->|monitor| RM
         S3 -.->|monitor| RM
         RM -->|replication| RR
     end
 
-    Note1["quorum = 2 of 3\npromotes RR on RM failure"]
+    Note1["quorum = 2 of 3<br/>promotes RR on RM failure"]
     RD --- Note1

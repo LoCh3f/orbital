@@ -1,10 +1,16 @@
 flowchart TD
-    Start(["market-ingestor starts"]) --> Loop["for each top-N coin"]
-    Loop --> Check{"hasHistory(coinId)?"}
-    Check -->|yes| Skip["skip: no CoinGecko call"]
-    Check -->|no| Fetch["fetch market_chart\nfrom CoinGecko"]
-    Fetch --> Persist["persist full history\nto market_prices"]
-    Persist --> Next["next coin"]
-    Skip --> Next
-    Next --> Loop
-    Loop -->|all coins done| Poll(["enter polling loop\n(FR7)"])
+    Poll["Top-20 snapshot polling"] --> Track["Update active coins and verified pairs"]
+    View["User selects range or zoom"] --> Queue[("Durable import jobs")]
+    Track --> Queue
+    Queue --> Pick["Single worker: active coin, priority, retry time"]
+    Pick --> Source{"Source"}
+    Source -->|Binance USDT| List["List monthly / daily archive files"]
+    List --> Pending["Skip completed files<br/>Take at most 2 files"]
+    Pending --> Verify["Bounded ZIP download + SHA-256 verification"]
+    Verify --> Atomic["Atomic candles + file ledger commit"]
+    Source -->|CoinGecko USD| CG["Fetch permitted 1 / 90 / 365-day window"]
+    CG --> USD["Atomic USD observation commit"]
+    Atomic --> Finish["Update job; retain unfinished work"]
+    USD --> Finish
+    Verify -.->|failure| Retry["Delay failed job; yield to other coins"]
+    CG -.->|failure| Retry

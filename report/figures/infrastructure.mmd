@@ -1,24 +1,12 @@
-graph TB
-    Client["orbital-app<br/>(desktop + web)"]
-    LB["gateway-lb<br/>(nginx)"]
-    GW["gateway"]
-    MS["market-service"]
-    NS["news-service"]
-    MI["market-ingestor<br/>(worker)"]
-    PGM[("postgres-market<br/>+ replica")]
-    PGN[("postgres-news<br/>+ replica")]
-    REDIS[("redis<br/>+ sentinel quorum")]
-    MON["prometheus + grafana"]
-
-    Client --> LB --> GW
-    GW --> MS
-    GW --> NS
-    GW --> REDIS
-    MS --> PGM
-    MS --> REDIS
-    NS --> PGN
-    NS --> REDIS
-    MI --> PGM
-    MON -.->|scrapes /metrics| GW
-    MON -.->|scrapes /metrics| MS
-    MON -.->|scrapes /metrics| NS
+flowchart TB
+    App["Connected desktop / web client"] --> LB["nginx ingress<br/>loopback :8080"]
+    LB --> GW["Gateway replicas<br/>proxy + cache + rate limit"]
+    GW --> MS["market-service"]
+    GW --> NS["news-service"]
+    GW --> Redis[("Redis primary + replica<br/>3 Sentinels")]
+    NS --> Redis
+    MS -->|market DB| PG[("Separate PostgreSQL pairs<br/>Market / News<br/>Async standbys")]
+    NS -->|news DB| PG
+    MI["market-ingestor<br/>one worker"] -->|market DB| PG
+    MI -->|CoinGecko + Binance| Providers["External providers<br/>CoinGecko USD API<br/>Binance USDT archives"]
+    MS -->|CoinGecko only| Providers

@@ -1,10 +1,14 @@
 \documentclass{scrartcl}
 \usepackage[utf8]{inputenc}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{url}
 \usepackage{natbib}
 \usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{microtype}
 \usepackage{cleveref} % this must be the last package to be loaded
+
+\hypersetup{pdftitle={Orbital: Final Project Report},pdfauthor={Aldo Visconti},pdfsubject={Reviewed implementation snapshot, 16 November 2026}}
 
 \newcommand{\emailaddr}[1]{\href{mailto:#1}{\texttt{#1}}}
 
@@ -19,7 +23,7 @@
     Aldo Visconti \\ \emailaddr{aldo.visconti@studio.unibo.it}
 }
 
-\date{\today}
+\date{16 November 2026}
 
 \begin{document}
 
@@ -29,33 +33,34 @@
 
 \maketitle
 
+\noindent\textbf{Implementation snapshot.} Reviewed on 16 November 2026 against
+\texttt{develop} at \texttt{e763ad4}. The fetched \texttt{main} branch at \texttt{c5e362f}
+contains the same application baseline. The declared release version is 1.3.0. Implemented behavior,
+recorded validation, and proposals are distinguished throughout this report.
+
 \noindent
 \textbf{Orbital} is a distributed, microservices-based platform that aggregates real-time
-cryptocurrency market data and financial news behind a single API gateway, with a Kotlin
+cryptocurrency market data and a synthetic crypto-news feed behind a single API gateway, with a Kotlin
 Multiplatform client (desktop and web) on top. Application logic is decomposed into two
 specialized services, \textbf{market-service} and \textbf{news-service}, fronted by a
-\textbf{gateway} that proxies, caches, and rate-limits every client request.
+\textbf{gateway} that proxies, caches, and rate-limits public API requests.
 
-The project focuses on keeping that aggregated data available and durable independently of any
-single component failing. The \textbf{CAP theorem} trade-off is explicitly addressed: the system
-prioritizes \textbf{availability} over strict consistency, since a client is always better served
-a slightly stale cached price than an error. \textbf{Fault tolerance} is implemented through
-real, verified infrastructure: both PostgreSQL databases run with a streaming-replication
-standby, and the Redis cache runs under a three-node Sentinel quorum, so a single-instance
-failure does not take the gateway's caching or rate-limiting down with it. Market data is
-continuously ingested by a standalone worker, decoupled from API traffic, which persists an
-append-only time series and performs a one-time historical backfill for newly observed coins.
+The project combines independently owned PostgreSQL databases, shared Redis caching and rate
+limiting, a three-node Sentinel quorum, and asynchronous database standbys. These mechanisms
+reduce particular failure risks; they do not guarantee uninterrupted service or zero data loss.
+A standalone worker collects current prices and progressively imports checksummed Binance
+archives for the same tracked coins. The client exposes historical ranges, zoom, and coverage
+information while keeping Binance USDT prices separate from CoinGecko USD observations.
+The backend-connected client and the public, backend-free market demo have different capabilities.
 
 \section*{Disclaimer}
 
-During the preparation of this work, the author used Claude Code (Anthropic) as a pair-programming
-and writing assistant: for implementing and debugging backend services, designing and drafting the
-Postgres replication / Redis Sentinel / distributed rate-limiting infrastructure, performing a
-security and code-quality audit of the resulting system, and drafting portions of this report from
-the resulting codebase and the author's own direction.
+Claude Code (Anthropic) and Codex (OpenAI) assisted with code, infrastructure, security
+remediation, historical imports, CI troubleshooting, and report drafting from repository evidence.
+Implemented behavior, proposals, and recorded validation are identified separately. The author
+remains responsible for reviewing generated material and for all technical claims.
 
-After using this tool, the author reviewed and edited the content as needed and takes full
-responsibility for the content of this report and of the underlying project.
+\clearpage
 
 \tableofcontents
 
@@ -70,10 +75,10 @@ see current cryptocurrency prices, a coin's price history, and recent news, with
 several separate sites.
 
 \begin{itemize}
-  \item \textbf{What:} The software continuously ingests cryptocurrency prices and news, caches
+  \item \textbf{What:} The software continuously ingests cryptocurrency prices, serves a synthetic crypto-news feed, caches
   and rate-limits access to that data at a single gateway, and presents it through a searchable,
   filterable client.
-  \item \textbf{Roles:} There is currently a single, anonymous role, since there are no user
+  \item \textbf{Roles:} There is currently a single anonymous application role, since there are no user
   accounts and nothing distinguishes one caller from another beyond their IP address for
   rate-limiting purposes (see \cref{security} for a proposed design that would introduce real
   roles).
@@ -83,22 +88,22 @@ several separate sites.
   auto-refreshes periodically, and many independent users may be doing this concurrently.
   \item \textbf{Data Storage:} The system does not store any user-specific data, since there is no
   concept of a user account to attach data to. The data it \emph{does} store, price snapshots and
-  news articles, is global, shared across every user, persisted in two separate PostgreSQL
-  databases (one per backend service).
+  news articles and archive-import metadata, is global and shared across users. It is persisted
+  in two separate PostgreSQL databases, one per backend service.
 \end{itemize}
 
 \paragraph{Why is distribution needed?} Distribution was deliberately chosen for the following
 reasons, not imposed artificially:
 
 \begin{itemize}
-  \item \textbf{Resource Sharing:} All clients observe the same market and news data, so it makes
+  \item \textbf{Resource Sharing:} Backend-connected clients observe shared market and news data, so it makes
   sense to fetch and store it once, centrally, rather than have every client poll CoinGecko
   independently, which would also multiply load against CoinGecko's own rate
   limits~\citep{coingecko2024api}.
   \item \textbf{Fault Tolerance:} A single unreplicated database or cache instance would make the
   whole platform's persistence path a single point of failure; \cref{fault-tolerance} describes
   how this is addressed.
-  \item \textbf{Independent Scalability:} The gateway is the one component every client talks to,
+  \item \textbf{Independent Scalability:} The gateway is the component every backend-connected client talks to,
   so it is the one component that needs to be horizontally scalable independently of the two
   backend services behind it; \cref{availability} describes how this was designed for.
   \item \textbf{Educational Purpose:} To implement and analyze real distributed-systems patterns,
@@ -111,82 +116,89 @@ reasons, not imposed artificially:
 \subsection{Functional Requirements}\label{functional-requirements}
 
 \begin{description}
-  \item[FR1] The system shall provide current market data (price, market cap, 24h volume, 24h
-  price change) for the top $N$ cryptocurrencies by market capitalization. \\
-  \emph{Acceptance:} \texttt{GET /api/v1/market/prices} returns a JSON array of at least $N$
-  coins, each carrying all of the above fields.
+  \item[FR1] The connected application shall provide current USD market data for the existing
+  top-20 selection by market capitalization. \\
+  \emph{Acceptance:} \path|/api/v1/market/prices| returns a success envelope containing the
+  selected coins, prices, market caps, volumes, changes, and observation timestamps.
 
-  \item[FR2] The system shall provide historical price data for an individual cryptocurrency,
-  built from the system's own continuously-ingested observations rather than only the upstream
-  API's short-range sample. \\
-  \emph{Acceptance:} \texttt{GET /api/v1/market/history/\{coinId\}} returns a chronologically
-  ordered series of prices for a coin that has previously been observed by the system.
+  \item[FR2] The system shall provide source-labelled historical prices for a tracked coin,
+  including available Binance pair history and a separately retained CoinGecko USD series. \\
+  \emph{Acceptance:} \path|/api/v1/market/history-range/{coinId}| returns ascending timestamped
+  samples, source and quote, selected bounds, resolution, loaded coverage, gaps, and import state.
+  The legacy price-array and timestamped-history endpoints remain available.
 
-  \item[FR3] The system shall provide a list of news articles, optionally filtered by category. \\
-  \emph{Acceptance:} \texttt{GET /api/v1/news[?category=]} returns articles consistent with the
-  requested category filter, or all categories if none is given.
+  \item[FR3] The system shall expose a clearly identified synthetic crypto-news feed with
+  category validation. \\
+  \emph{Acceptance:} the default and CRYPTO categories return synthetic articles; other supported
+  categories return no articles, and an unknown category is rejected with HTTP 400. Real NewsAPI
+  integration is outside the implemented scope.
 
-  \item[FR4] The system shall provide read access to its own previously-stored news archive,
-  independent of the live upstream feed's availability. \\
-  \emph{Acceptance:} \texttt{GET /api/v1/news/history[?category=]} returns previously persisted
-  articles even when the upstream news source is unreachable.
+  \item[FR4] The system shall expose previously persisted news independently of an external
+  provider. \\
+  \emph{Acceptance:} \path|/api/v1/news/history| returns stored articles in descending publication
+  order, optionally filtered by category. Repeated storage of the same article is idempotent.
 
-  \item[FR5] The client application shall allow a user to search and filter cryptocurrencies by
-  free text, and news articles by category. \\
-  \emph{Acceptance:} typing into the market search field narrows the displayed coin list;
-  selecting a news category narrows the displayed articles to that category.
+  \item[FR5] The client shall support labelled market/news search, news category filters, empty
+  results, and refresh recovery. \\
+  \emph{Acceptance:} filtering updates the visible list; a failed refresh preserves previous
+  content with a stale-data notice and retry control rather than presenting it as newly fetched.
 
-  \item[FR6] The client application shall present an individual coin's historical price trend
-  visually. \\
-  \emph{Acceptance:} expanding a coin in the client renders a chart built from FR2's data,
-  falling back to the live snapshot's short-range sample if no history has been ingested yet.
+  \item[FR6] The connected client shall expose 24H, 7D, 1M, 1Y, and All available chart ranges,
+  request finer detail for narrower windows, and make incomplete coverage visible. \\
+  \emph{Acceptance:} range/source selection or zoom issues a new history request; obsolete requests
+  cancel, gaps are not connected by the price line, and earliest/latest loaded dates are shown.
+  The backend-free public demo retains a seven-day relative overview.
 
-  \item[FR7] The system shall continuously and automatically ingest market data on a fixed
-  interval, independent of API request traffic, and shall perform a one-time historical backfill
-  for each newly observed coin. \\
-  \emph{Acceptance:} price snapshots keep accumulating in storage over time even with zero API
-  traffic; a coin observed for the first time has a long history available immediately rather
-  than only from the moment it was first observed.
+  \item[FR7] Current-price collection and historical imports shall continue independently of
+  client traffic for the same tracked universe. \\
+  \emph{Acceptance:} the default snapshot interval is 15 minutes; archive jobs and imported-file
+  checksums persist in PostgreSQL, survive restarts, and stop being scheduled for inactive coins.
+  Coverage grows progressively; complete history is not promised immediately after first startup.
 \end{description}
 
 \subsection{Non-functional Requirements}\label{non-functional-requirements}
 
 \begin{description}
-  \item[NFR1 (Availability)] The gateway shall keep serving already-cached responses even if a
-  backend service, the cache, or the rate limiter's backing store is temporarily unavailable,
-  rather than failing the request outright. \\
-  \emph{Acceptance:} a Redis outage must not cause the gateway to reject requests outright
-  (verified in this project by the rate limiter's fail-open behaviour, \cref{fault-tolerance}).
+  \item[NFR1 (Availability)] A cache or rate-limit backend failure shall not automatically reject
+  an otherwise serviceable request. \\
+  \emph{Acceptance:} cache failures attempt the upstream request and Redis rate-limit failures
+  allow the request. A valid cache hit can avoid an upstream call; cache expiry or simultaneous
+  upstream failure can still produce an error. This is a bounded availability policy, not an SLA.
 
-  \item[NFR2 (Fault Tolerance)] Loss of a single PostgreSQL primary shall not lose previously
-  committed data, given a configured streaming-replication standby. \\
-  \emph{Acceptance:} \texttt{pg\_stat\_replication} on a primary shows an actively streaming
-  replica with a matching log position (verified manually in this project, \cref{acceptance-test}).
+  \item[NFR2 (Recovery)] Each PostgreSQL primary shall have an asynchronous standby and persistent
+  storage to support recovery. \\
+  \emph{Acceptance:} a recorded replication check shows streaming and matching WAL positions.
+  Unreplicated transactions can be lost on primary failure; promotion and service reconnection
+  remain manual. Matching positions at one instant do not prove zero-loss failover.
 
-  \item[NFR3 (Scalability)] The gateway shall be horizontally scalable to multiple replicas
-  without each replica enforcing an independent, and therefore effectively multiplied, rate
-  limit. \\
-  \emph{Acceptance:} a shared, Redis-backed counter enforces one limit per client across every
-  replica (implemented and unit-tested; full multi-replica behaviour under load is discussed as
-  not yet verified in \cref{future-works}).
+  \item[NFR3 (Scalability)] Gateway replicas shall share one Redis-backed budget per client. \\
+  \emph{Acceptance:} tests cover client identity, quota exhaustion, and fail-open behavior;
+  forwarded identity is trusted only behind the private nginx ingress. Sustained concurrent
+  multi-replica load remains an evaluation task.
 
-  \item[NFR4 (Performance)] Market and news read endpoints requested repeatedly within a short
-  window shall be served from cache rather than re-fetching upstream on every request. \\
-  \emph{Acceptance:} two identical requests issued within the cache TTL result in exactly one
-  upstream call (covered by an automated test, \cref{automatic-testing}).
+  \item[NFR4 (Resource Bounds)] Repeated cacheable reads shall avoid redundant upstream calls;
+  historical responses and imports shall remain bounded. \\
+  \emph{Acceptance:} repeated identical cacheable requests share the short-TTL response. Range
+  queries sample the whole selected span at a bounded resolution; network/ZIP size limits and
+  small background batches bound archive work. Range endpoints are not gateway-cached.
 
-  \item[NFR5 (Observability)] All backend services shall expose health and metrics endpoints,
-  scraped and visualized centrally. \\
-  \emph{Acceptance:} \texttt{/health} and \texttt{/metrics} respond on the gateway and both
-  backend services; a Prometheus/Grafana dashboard is provisioned automatically with no manual
-  setup.
+  \item[NFR5 (Observability)] Liveness, readiness, and metrics shall expose different operational
+  information without consuming the public request budget. \\
+  \emph{Acceptance:} \path|/health| remains a liveness check, \path|/ready| reports required
+  dependency availability, and \path|/metrics| supplies Prometheus metrics. Grafana is optional
+  through the admin Compose profile.
+
+  \item[NFR6 (Integrity and Safety)] Invalid persistence batches shall roll back, provider
+  identities and currencies shall remain explicit, and errors shall not expose internal details. \\
+  \emph{Acceptance:} real-PostgreSQL tests cover atomic failure and deduplication; Binance downloads
+  require matching SHA-256 checksums; source/quote metadata and safe error envelopes are returned.
 \end{description}
 
 \subsection{Implementation Choices}\label{implementation-choices}
 
 \begin{enumerate}
-  \item \textbf{Technical Stack:} The entire codebase, backend, client, and shared library
-  modules, is written in Kotlin, with Ktor~\citep{ktor2024docs} as the backend HTTP
+  \item \textbf{Technical Stack:} Application logic across backend, client, and shared library
+  modules is written in Kotlin, with Ktor~\citep{ktor2024docs} as the backend HTTP
   server/client framework.
   %
   \begin{itemize}
@@ -204,8 +216,8 @@ reasons, not imposed artificially:
     otherwise the same client logic, and keeps the client in the same language as the backend.
   \end{itemize}
 
-  \item \textbf{Database:} PostgreSQL 15~\citep{postgresql2024docs}, accessed through the Exposed
-  ORM, with one independent database per backend service (\texttt{market\_data},
+  \item \textbf{Database:} PostgreSQL 15~\citep{postgresql2024docs}, accessed through Exposed
+  and parameterized JDBC queries, with one independent database per backend service (\texttt{market\_data},
   \texttt{news\_data}).
   %
   \begin{itemize}
@@ -243,10 +255,11 @@ reasons, not imposed artificially:
 
 \subsection{Relevant Distributed System Features}\label{ds-features}
 
-\paragraph{Transparency.} Real, and central to the design. \texttt{orbital-app} only ever talks
+\paragraph{Transparency.} The backend-connected \texttt{orbital-app} talks
 to the gateway (\cref{architecture}); it has no knowledge of there being two backend services,
 two PostgreSQL primaries, a Redis Sentinel quorum, or (potentially) several gateway replicas
-behind a load balancer. Location and replication are meant to be invisible to it by construction.
+behind a load balancer. Provider identity, quote currency, gaps, and incomplete imports are
+intentionally visible to users. The separate public demo calls CoinGecko directly.
 
 \paragraph{Fault tolerance, dependability.} Highly relevant, and the area with the most concrete
 work in this project: PostgreSQL streaming replication for both databases, a Redis Sentinel
@@ -256,30 +269,30 @@ losing previously-collected price/news history to a single container crash was j
 unacceptable given FR2/FR4's whole point is to keep that history around. \Cref{fault-tolerance}
 details how.
 
-\paragraph{Scalability.} Relevant specifically at the gateway, the one component every client
-and every request passes through; not particularly relevant at the two backend services, which
+\paragraph{Scalability.} Relevant specifically at the gateway, the entry point for backend-connected
+client requests; not particularly relevant at the two backend services, which
 are not designed to need more than one replica each. \Cref{availability} covers the design;
 \cref{future-works} is explicit about what has and has not actually been exercised under load.
 
-\paragraph{Security, trust.} The weakest feature in the current implementation (see
-\cref{security}): there are no user accounts, so technically there is no \emph{sensitive} data to
-protect yet, and no authentication or authorization exists. This is acceptable for a public
-read-only aggregator, but it is a real gap relative to any future version of the product that
-introduces accounts, which is why \cref{security} proposes a concrete design rather than leaving
-the question unaddressed.
+\paragraph{Security, trust.} Public HTTP reads remain anonymous; account authentication and
+role-based authorization have not been implemented. Existing controls nevertheless address
+concrete risks: loopback-only development exposure, a trusted private proxy boundary, safe errors,
+deadlines, bounded imports, non-root runtime users, dependency checks, and careful source mapping.
+Database credentials and IP-based operational identifiers still require protection even without
+user accounts. A proposed identity extension is separated from these controls in \cref{security}.
 
 \paragraph{Resource sharing.} Central to the system's existence (\cref{concept}): price and news
-data is fetched once and shared across every client, rather than each client fetching
-independently; the Redis cache, the Redis-backed rate-limit counters, and both PostgreSQL
+backend observations and imported archive files are retained centrally, while short-TTL
+caches reduce repeated live requests. The backend-free demo is an explicit exception; the Redis cache, the Redis-backed rate-limit counters, and both PostgreSQL
 databases are all resources shared across however many gateway/service replicas are running.
 
 \paragraph{Openness, interoperability.} Relevant at the boundaries: the backend talks to
-CoinGecko's public REST/JSON API as an external, independently-versioned system, and the client
+CoinGecko's public REST/JSON API and Binance's HTTPS archive as external systems, and the client
 and backend communicate over plain HTTP/JSON rather than a project-specific binary protocol, so
 either side could in principle be replaced independently as long as that contract holds.
 
 \paragraph{Evolvability, maintainability.} Actively designed for: the backend is split into
-independently buildable Gradle modules, dependency versions are centralized, and every push runs
+independently buildable Gradle modules, dependency versions are centralized, and pushes/PRs targeting main or develop run
 automated tests, static analysis (detekt), and formatting checks (ktfmt/spotless) in CI, with
 releases cut automatically from Conventional Commit history. This matters because the project
 has already gone through several rounds of adding infrastructure (replication, Sentinel, a
@@ -291,8 +304,9 @@ keep the gateway from doing redundant work, which matters more for not wasting C
 rate-limited quota than for raw latency.
 
 \paragraph{Economy, costs.} A real, concrete driver of at least one implementation decision
-already made: news-service currently serves a mocked fallback feed rather than paying for a
-NewsAPI subscription, a cost-based trade-off made explicitly rather than left implicit.
+already made: news-service serves synthetic articles without unused external requests. Binance
+archives avoid a paid full-history API dependency, while CoinGecko public-plan requests are
+bounded. Free access still carries coverage, quota, storage, and dataset-license constraints.
 
 \section{Design}\label{design}
 
@@ -306,9 +320,9 @@ analysis, three macro concerns were identified:
 
 \begin{itemize}
   \item \textbf{Market Data Logic:} Performed by \texttt{market-service} and the standalone
-  \texttt{market-ingestor} worker. Handles CoinGecko integration, price persistence, and
-  historical backfill. Exposes a REST API for reads; the worker itself exposes nothing and only
-  writes.
+  \texttt{market-ingestor} worker. Combines current CoinGecko prices with a resumable Binance
+  archive importer. The API reads observations and can update tracking metadata/enqueue import
+  requests; only the worker collects market observations. The worker exposes no HTTP endpoint.
   \item \textbf{News Logic:} Performed by \texttt{news-service}. Handles the (currently mocked)
   news feed and its own persisted archive. Exposes a REST API.
   \item \textbf{Edge:} Handled by \texttt{gateway} (the single client-facing entry point, caching
@@ -317,7 +331,7 @@ analysis, three macro concerns were identified:
 \end{itemize}
 
 This \textbf{functional decomposition} ensures that market-service and news-service, two
-independent external integrations with independent failure modes, can evolve, be deployed, and
+independent functional domains with separate persistence failure modes, can evolve, be deployed, and
 fail independently of one another, and that the one component actually needing to scale (the
 gateway) is not coupled to the two that do not. The client, \texttt{orbital-app}, is
 architecturally a classic thin client: all domain logic and persistence live behind the gateway,
@@ -325,16 +339,17 @@ and the client's own role is presentation and local UI state only.
 
 \subsection{Infrastructure}\label{infrastructure}
 
-The infrastructure is composed of the following decoupled components, all orchestrated by one
-\texttt{docker-compose.yml}:
+The infrastructure contains the following components. Backend containers are orchestrated by
+one \texttt{docker-compose.yml}; desktop and browser clients run separately:
 
 \begin{itemize}
   \item \textbf{Client-side:} \texttt{orbital-app}, a Compose Multiplatform application (desktop
-  JVM and \texttt{wasmJs} web). It communicates with the gateway exclusively via REST/HTTP.
+  JVM and \texttt{wasmJs} web). The full client uses the gateway; the separate public demo calls
+  CoinGecko directly and has neither server-side archives nor a news tab.
   \item \textbf{Edge Layer:} \texttt{gateway-lb}, an nginx instance acting as a reverse proxy. It
   provides a single entry point on port \texttt{8080}, hides however many \texttt{gateway}
-  replicas sit behind it, and re-resolves the \texttt{gateway} service name on every request
-  rather than caching it once, so scaling is actually reflected.
+  replicas sit behind it. A variable upstream and Docker DNS resolver with a short cache allow
+  renewed discovery instead of a single address fixed when nginx starts.
   \item \textbf{Service Layer:} \texttt{gateway} (routing, caching, rate limiting),
   \texttt{market-service} and \texttt{news-service} (independent Ktor applications, each owning
   its own database), and \texttt{market-ingestor} (a worker process with no HTTP interface).
@@ -343,27 +358,23 @@ The infrastructure is composed of the following decoupled components, all orches
   (owned by news-service), each with its own streaming-replication standby.
   \item \textbf{Cache / Coordination Layer:} A Redis primary and replica, monitored by a
   three-node Sentinel quorum.
-  \item \textbf{Monitoring:} Prometheus (scraping all three HTTP services) and Grafana.
-  \item \textbf{Administration:} pgAdmin, for inspecting both PostgreSQL instances.
+  \item \textbf{Monitoring:} Prometheus scrapes all three HTTP services. Grafana is provisioned
+  but starts only with the optional \texttt{admin} profile.
+  \item \textbf{Administration:} pgAdmin is also gated by the \texttt{admin} profile.
 \end{itemize}
 
 \begin{figure}
 \centering
-\IfFileExists{figures/infrastructure.png}{%
-  \includegraphics[width=0.9\textwidth]{figures/infrastructure.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/infrastructure.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/infrastructure.png}.
-  \vspace{1em}}}%
-}
-\caption{Infrastructure topology: client, edge, service, and persistence/cache layers.}
+\includegraphics[width=0.9\textwidth]{figures/infrastructure.png}
+\caption{Core data paths across the client, edge, services, providers, and persistence layers.
+Monitoring and optional administration components are described in the text.}
 \label{fig:infrastructure}
 \end{figure}
 
-All of these currently run on a single host, on one Docker bridge network
+Backend containers currently run on a single host, on one Docker bridge network
 (\texttt{orbital-net}); nothing in the design assumes same-host placement, but nothing in the
-current deployment spans more than one host either. That would be the natural next step if
+current deployment spans more than one host either. Client applications run outside that
+container network; Binance and CoinGecko are external providers. That would be the natural next step if
 Orbital needed genuine geographic distribution, which \cref{concept} does not identify as a
 driver for this product.
 
@@ -373,8 +384,9 @@ embedded DNS resolves each service's name (e.g.\ \texttt{postgres-market}, \text
 this is deliberately \emph{not} enough on its own: a client that resolved \texttt{redis} once and
 cached the connection would keep talking to the old master after a Sentinel failover. Both the
 gateway and news-service therefore talk to Redis through the Sentinel quorum
-(\texttt{REDIS\_SENTINEL\_HOSTS}) rather than a fixed hostname, asking the quorum who the current
-master is on every new connection. This makes the infrastructure \textbf{location-transparent} in
+(\path|REDIS_SENTINEL_HOSTS|) rather than a fixed hostname, asking the quorum who the current
+master is. Sentinel runtime files are writable in separate persistent volumes, seeded with a
+numeric monitor address so a stopped Docker hostname cannot block failover. This makes the infrastructure \textbf{location-transparent} in
 the sense relevant to \cref{ds-features}: nothing downstream of the gateway needs to know which
 physical Redis node is currently serving as master.
 
@@ -382,151 +394,161 @@ physical Redis node is currently serving as master.
 
 \subsubsection{Domain Entities}\label{modelling-entities}
 
-The domain is partitioned between the two backend services, each owning its database outright:
+Each service owns its persistence schema; domain records are not shared across service databases.
+Market persistence includes the following records:
 
 \begin{itemize}
-  \item \textbf{Price Snapshot (market-service):} coin id, symbol, name, current price, market
-  cap, 24h volume, 24h change, and an observation timestamp. One row per observation.
-  \item \textbf{News Article (news-service):} id, title, description, URL, source, category, and
-  a published timestamp. One row per observation.
+  \item \textbf{USD observations:} \path|market_prices| stores the CoinGecko coin ID, display
+  metadata, USD market values, Unix-second observation time, and expected sampling interval.
+  Deterministic IDs and a coin/time check skip repeated observations while retaining older rows.
+  \item \textbf{Binance candles:} \path|history_candles| stores coin ID, verified USDT pair,
+  closing timestamp, closing price, and interval. IDs distinguish pair, interval, and time.
+  \item \textbf{Tracked coins:} \path|history_coins| records active membership, display metadata,
+  verified pair, and the last identity-lookup time. Only the existing top-20 selection is active;
+  discovering Binance files does not add assets. Stored data survives a coin leaving the list.
+  \item \textbf{Import jobs:} \path|history_jobs| stores source, normalized time window,
+  resolution, priority, state, and retry timing. User-selected windows receive higher priority.
+  \item \textbf{Imported files:} \path|history_files| records archive path and checksum in the
+  same transaction as the imported candles. The older \path|market_backfills| marker table remains
+  for compatibility; the archive workflow uses durable jobs and the file ledger instead.
 \end{itemize}
 
-Both tables map to exactly one infrastructural location each: price snapshots live only in
-\texttt{postgres-market}'s \texttt{market\_prices} table, news articles only in
-\texttt{postgres-news}'s \texttt{news} table. There is no replication of domain data
-\emph{between} the two backend services, only within each one's own PostgreSQL primary/standby
-pair.
+News persistence stores article metadata and category in the news database. Stable IDs derived
+from article URL and category prevent repeated feed requests from duplicating an article. These
+records are a retained archive, not a separate observation row for every read.
 
-\begin{figure}
+\begin{figure}[tbp]
 \centering
-\IfFileExists{figures/domain-entities.png}{%
-  \includegraphics[width=0.7\textwidth]{figures/domain-entities.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/domain-entities.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/domain-entities.png}.
-  \vspace{1em}}}%
-}
-\caption{The two domain entities, each owned by one backend service.}
+\includegraphics[width=0.98\textwidth]{figures/domain-entities.png}
+\caption{Logical market records, durable archive state, and the independent news archive.
+Arrows show associations rather than physical foreign-key constraints.}
 \label{fig:domain-entities}
 \end{figure}
 
-\subsubsection{The Backfill Gate}\label{modelling-backfill-gate}
+\subsubsection{Resumable Historical Imports}\label{modelling-backfill-gate}
 
-A single idempotency check, \texttt{MarketRepository.hasHistory(coinId)}, is the mechanism that
-makes FR7's one-time historical backfill safe to re-run unconditionally on every startup of
-\texttt{market-ingestor}, rather than needing its own separate completion-tracking table. Before
-fetching a coin's full \texttt{market\_chart} history, the worker checks whether any row already
-exists for that coin; if one does, the backfill is skipped entirely, with no CoinGecko call and
-no delay. This single boolean gate is what lets the worker's startup sequence be simply ``for
-every top coin, backfill if needed, then enter the polling loop'' without the worker needing to
-remember, across restarts, which coins it has already handled: that memory already exists, as a
-side effect, in the very table the backfill writes to. This same idempotency is what makes the
-worker's restart behaviour (\cref{fault-tolerance}) safe, since a crash mid-backfill simply means
-the next startup re-checks the gate and continues from wherever the data actually stopped.
+A single \texttt{hasHistory(coinId)} check cannot distinguish one live observation from a
+complete historical import. The worker therefore uses durable jobs and per-file completion,
+rather than treating the existence of any price as proof that backfill is finished.
 
-There is no equivalent gate on the regular polling loop, by design: each polling tick is expected
-to append a fresh row regardless of what came before, since FR7's whole point is a continuously
-growing observation log, not a single current-value row to be kept idempotent against repeats.
+On each collection cycle, the worker refreshes the same tracked selection and saves current USD
+snapshots. It schedules daily Binance history for verified pairs and a separate bounded
+CoinGecko history request. A background coroutine imports a small batch, commits candle data and
+its checksum ledger atomically, and yields to other work. A failed provider receives a retry delay;
+database interruptions do not terminate the queue loop. Pending work for inactive coins is skipped.
+The design assumes one ingestor; it does not implement distributed job leasing or exactly-once
+execution across multiple workers.
 
-\begin{figure}
+Binance discovery uses paginated monthly listings and daily archives for uncovered periods.
+Daily candles give long-range coverage; viewed windows request hourly or five-minute archives.
+Files are SHA-256 checked, read from bounded ZIP streams without filesystem extraction, and parsed
+using closing price and closing time. Binance timestamps switch from milliseconds to microseconds
+in January 2025, so both formats are normalized to Unix seconds~\citep{binance2026data}.
+Missing or rejected files remain incomplete work rather than silently fabricated data.
+
+\begin{figure}[tbp]
 \centering
-\IfFileExists{figures/backfill-gate.png}{%
-  \includegraphics[width=0.6\textwidth]{figures/backfill-gate.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/backfill-gate.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/backfill-gate.png}.
-  \vspace{1em}}}%
-}
-\caption{The backfill gate's decision logic on worker startup.}
+\includegraphics[width=0.94\textwidth]{figures/backfill-gate.png}
+\caption{Durable job selection, checksum validation, atomic persistence, and retry behavior.}
 \label{fig:backfill-gate}
 \end{figure}
 
+\subsubsection{Sources, Quotes, and Coverage}\label{modelling-coverage}
+
+Binance series are closing prices for an explicitly identified USDT pair. CoinGecko provides
+aggregated USD observations. They are selectable series, not a single spliced price history;
+USDT and USD are not treated as interchangeable quote currencies. Pair mappings use explicit
+coin IDs or identity-checked tickers to avoid symbol collisions. Unlisted or unverified coins use
+available CoinGecko coverage, and unsuccessful identity lookups are bounded to once a day.
+
+The public CoinGecko historical request is limited to the permitted 365-day window; stored local
+observations can grow beyond that window over time~\citep{coingecko2026history}. Binance can extend
+coverage back to an available pair listing, not to a coin's creation date or to periods that the
+exchange never archived. Published archive files also lag the live market. No provider guarantees
+that every requested interval is present.
+
+The range API returns a \texttt{HistorySeries} containing source, quote, optional pair, timestamped
+samples, requested bounds, resolution, earliest/latest loaded timestamps, detected gaps, notices,
+and import state. SQL window functions select representative samples across the whole span at a
+bounded resolution, rather than discarding everything before the latest 500 rows. Gaps are detected
+at the displayed resolution using expected cadence; smaller missing intervals may be hidden by
+coarse sampling. Earliest coverage is explicitly labelled as loaded so far while imports continue.
+
+Binance Vision dataset terms include attribution, non-commercial use, and share-alike conditions;
+the UI displays attribution and the dataset license, separately from the application code's
+license~\citep{binance2026terms}. Free downloading is not a claim of unrestricted reuse.
+
 \subsection{Interaction}\label{interaction}
 
-All interaction in Orbital is synchronous \textbf{request/response} over HTTP. The client
-(\texttt{orbital-app}) issues a request to the gateway; the gateway either answers directly from
-its Redis/in-process cache or proxies the request onward to the relevant backend service, which
-in turn either answers from its own database or makes an outbound HTTP call to CoinGecko (or the
-mocked news source) before persisting the result and responding. There is exactly one interaction
-pattern in use throughout, client-server request/reply, chosen deliberately over, for instance, a
-publish/subscribe or streaming pattern, since nothing in \cref{requirements} calls for push
-updates: the client's auto-refresh (FR5/FR6) is itself just a periodic pull, not a
-server-initiated push.
+User-facing API interaction is HTTP request/response. Current-price requests can be served from
+a short-TTL gateway cache or forwarded to market-service, which fetches CoinGecko prices without
+writing market observations. News-service serves synthetic articles, uses its own cache namespace,
+and can persist them independently. The public demo bypasses the gateway and calls CoinGecko.
+
+Historical range requests read stored observations and enqueue missing work. They do not download
+ZIP files inside the HTTP handler. The worker later polls PostgreSQL for jobs and contacts the
+providers independently of the requesting client. The UI polls while imports are incomplete;
+there is no server-initiated push, message broker, or external streaming protocol.
 
 \begin{figure}
 \centering
-\IfFileExists{figures/cache-sequence.png}{%
-  \includegraphics[width=0.85\textwidth]{figures/cache-sequence.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/cache-sequence.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/cache-sequence.png}.
-  \vspace{1em}}}%
-}
+\includegraphics[width=0.85\textwidth]{figures/cache-sequence.png}
 \caption{A cached vs.\ uncached \texttt{GET /api/v1/market/prices} request.}
 \label{fig:cache-sequence}
 \end{figure}
 
 \subsection{Behaviour}\label{behaviour}
 
-The gateway and both backend services are \textbf{stateless} between requests: any state they
-touch (the cache, the rate-limit counters, the databases) lives outside the process, in Redis or
-PostgreSQL, which is precisely what makes them safe to run as multiple replicas
-(\cref{availability}). The market-ingestion worker is the one genuinely \textbf{stateful}
-component: it holds an in-process polling loop with its own timing, and is not designed to be run
-as more than one replica; doing so would duplicate every fetch and every write, since nothing
-coordinates multiple ingestor instances against each other (this constraint is discussed further,
-as a known limitation, in \cref{future-works}).
+Shared production state lives in PostgreSQL and Redis. Gateway replicas share Redis cache
+entries and client budgets; the bounded in-process fallback is intended for standalone development
+and does not supply a cluster-wide quota. HTTP clients, Redis pools, and database pools have
+explicit lifecycle cleanup, and blocking cache/database work is dispatched away from request threads.
 
-State updates therefore happen in exactly two places: the ingestion worker appends price
-snapshots on its fixed interval (FR7), and each backend service appends whatever it fetched
-immediately after answering a live (non-cached) request to it.
+The ingestor owns one collection loop and one background import loop. Durable queue state survives
+its process; only one ingestor should run because job ownership is not coordinated across workers.
+Repeated observations and imported files are deduplicated, but duplicate external requests from
+multiple workers would still waste quotas and can race at database constraints. Market API reads
+may update tracking metadata and enqueue jobs; they do not persist new price observations.
+News reads may schedule best-effort storage of the synthetic feed.
 
 \subsection{Data and Consistency Issues}\label{data-and-consistency-issues}
 
 \subsubsection{CAP Theorem Position}\label{cap-theorem-position}
 
-The system deliberately prioritizes \textbf{Availability over Consistency} (AP), the opposite
-choice from a transactional system, and the correct one here: a client being served a price that
-is a few seconds stale is an acceptable, routine outcome; a client being refused an answer
-because the authoritative value could not be confirmed is not, for a read-only aggregator with no
-financial transactions riding on the exact figure. Framed against the CAP
-theorem~\citep{brewer2000towards,gilbert2002brewer}, under a network partition or a dependency
-outage the system chooses to keep answering, whether from cache or by falling open past a failed
-rate-limit check, rather than to block or reject.
+The design favors usable read responses when a valid short-TTL cache entry exists, and treats
+Redis rate-limit availability as non-critical. This is an application policy motivated by the
+CAP trade-off~\citep{brewer2000towards,gilbert2002brewer}; it is not a proof that the entire
+multi-component deployment is a formally available AP system. An unavailable PostgreSQL primary,
+an expired cache entry combined with an upstream outage, or a lost Sentinel majority can still
+make operations fail. HTTP deadlines and safe error envelopes bound and describe those failures.
 
-This AP choice is why both the gateway's cache and its distributed rate limiter are built to
-\textbf{fail open} (\cref{fault-tolerance}) rather than fail closed, and why PostgreSQL
-replication (\cref{fault-tolerance-replication}) is asynchronous: a CP alternative was considered
-and rejected, since making every write wait for synchronous standby acknowledgement would trade
-away write availability for a consistency guarantee (zero data loss on failover) that nothing in
-\cref{requirements} actually demands.
+PostgreSQL writes remain transactional. Asynchronous standbys reduce write coupling but can lag;
+promotion can lose transactions not yet received by the standby~\citep{postgresql2024docs}. Redis
+replication is also asynchronous, so failover may lose recent cache entries or quota increments.
+A stronger consistency or zero-loss guarantee would need a different replication and failover
+configuration and corresponding tests.
 
 \subsubsection{Consistency Model}\label{consistency-model}
 
-Both backend services persist every fetch to PostgreSQL, via the Exposed ORM over a
-HikariCP-managed connection pool, as \textbf{append-only} time series: a repeated observation of
-the same coin or the same article produces a \emph{new} row rather than overwriting an existing
-one. This is a deliberate modelling decision (\cref{modelling}), not an oversight: it means
-\texttt{getPriceHistory}/\texttt{getHistory} read a genuine time series rather than a single
-current value, which is exactly what FR2/FR4 need, at the cost of the tables only ever growing
-(mitigated by an index on \texttt{(coin\_id, last\_updated)} / \texttt{(category,
-published\_at)} and a capped result size on every read). Reads of the cache, meanwhile, are only
-ever eventually consistent with the underlying database within the cache's short TTL, an
-explicit, accepted trade-off given the AP position above.
+Market observations retain new coin/time values, while deterministic IDs skip repeats. News IDs
+are stable per URL/category. Archive candle IDs include coin, pair, interval, and timestamp;
+monthly/daily overlap does not intentionally duplicate those candles. Preexisting historical
+rows are preserved rather than destructively migrated.
+
+Both repository batch saves are atomic: an invalid row is logged and the exception propagates so
+the transaction rolls back. Archive file completion is committed with its candle batch. Client
+responses never imply an incomplete archive import is fully covered. A cache response represents
+its own short validity window and can lag provider updates; it does not supply a global snapshot
+across market, news, and archive state.
 
 \subsubsection{Shared Data and Synchronization}\label{shared-data-sync}
 
-No domain data is shared \emph{between} market-service and news-service: each owns its own
-database outright, and neither ever queries or writes to the other's. Because writes to each
-table are append-only, concurrent writers never contend on the same row; there is no update lock,
-no optimistic-concurrency version column, and no need for one, since nothing is ever updated in
-place. The one piece of state genuinely shared across component boundaries is the Redis cache and
-the Redis-backed rate-limit counters, shared across however many gateway (and, for the cache,
-news-service) replicas are running, which is the entire reason they live in Redis rather than in
-each process's own memory (\cref{availability}).
+Market and news databases have independent schemas and pools. Import jobs and tracked-coin
+metadata are mutable coordination state inside the market database, so describing all storage as
+an append-only log would be inaccurate. A normalized job key coalesces repeated requests for the
+same source/window/resolution. Redis atomic counter operations provide the shared per-client
+rate-limit decision; this coordination is distinct from database import transactions.
+The single-worker assumption limits import concurrency without claiming distributed leasing.
 
 \subsection{Fault-Tolerance}\label{fault-tolerance}
 
@@ -544,22 +566,15 @@ streaming-replication standby~\citep{postgresql2024docs}, set up via a replicati
 \texttt{pg\_basebackup}. This exists purely for durability: losing a primary's container and
 volume would otherwise lose every price snapshot and news article ever collected, directly
 undermining FR2/FR4/NFR2. As discussed in \cref{cap-theorem-position}, replication here is
-asynchronous by deliberate choice; the practical consequence, honestly stated, is that a primary
-failing \emph{at the exact moment of a write} could still lose that one write before it reached
-the standby, an accepted trade-off given this project's AP position, not an oversight. Redis
+asynchronous; a failed primary can lose any transactions not yet replicated, with the loss
+window depending on lag rather than being bounded to one write. Standby promotion and updating
+service connection targets remain manual. Redis
 similarly runs a primary/replica pair, monitored by a three-node Sentinel quorum (quorum size 2)
 that would promote the replica on a primary failure~\citep{redis2024sentinel}.
 
 \begin{figure}
 \centering
-\IfFileExists{figures/replication-ha.png}{%
-  \includegraphics[width=0.85\textwidth]{figures/replication-ha.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/replication-ha.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/replication-ha.png}.
-  \vspace{1em}}}%
-}
+\includegraphics[width=0.85\textwidth]{figures/replication-ha.png}
 \caption{PostgreSQL streaming replication and the Redis Sentinel quorum.}
 \label{fig:replication-ha}
 \end{figure}
@@ -572,27 +587,31 @@ upstream fetch (for the cache) or allows the request through anyway (for the rat
 rather than failing the whole request. This was not the original behaviour of the rate limiter:
 an internal audit of the system found that it originally had no such fallback and would have
 taken down \emph{all} gateway traffic on a Redis blip; this was fixed before this report was
-written. Both backend services similarly catch and log (rather than propagate) a per-row
-persistence failure during a batch save, so one malformed row cannot take an entire successful
-fetch down with it.
+written. Cache failure falls back to an upstream request, not to a guaranteed durable stale copy.
+If that request also fails, an error is returned. Repository persistence follows a different
+policy: invalid batches roll back and propagate failure. Best-effort HTTP-side persistence may
+log that failure separately; it does not turn a partially committed batch into a successful one.
 
-\subsubsection{Idempotent Backfill on Restart}\label{fault-tolerance-backfill}
+\subsubsection{Resumable Imports on Restart}\label{fault-tolerance-backfill}
 
-As described in \cref{modelling-backfill-gate}, the \texttt{hasHistory} check that gates FR7's
-backfill is what makes \texttt{market-ingestor}'s crash recovery trivial: on restart, the worker
-simply re-runs its startup sequence against every top coin, and the gate itself determines which
-coins (if any) still need backfilling. No action log, checkpoint file, or separate ``which coins
-are done'' table is needed; the already-persisted data \emph{is} the checkpoint.
+The durable jobs and checksum ledger in \cref{modelling-backfill-gate} are the restart checkpoint.
+Completed files are skipped, incomplete work remains pending, and failed providers yield through
+a retry delay. A bounded file batch avoids keeping the worker on one large import indefinitely.
+This provides practical resumability with transactional deduplication, not an exactly-once
+processing guarantee for an arbitrarily replicated ingestion service.
 
 \subsubsection{Database Connection Retry and Startup Ordering}\label{fault-tolerance-retry}
 
-The market-ingestion worker retries its initial database connection with a capped linear backoff
-rather than crashing on a transient startup race against PostgreSQL still initializing. For this
-one component, failing to even start is worse than waiting, since the worker exists solely to
-write to the database. At the orchestration level, every Docker Compose service declares a
-\texttt{healthcheck}, and dependent services wait on \texttt{condition: service\_healthy} rather
-than merely on the container having started, so a service never attempts to use a dependency that
-has launched but is not yet actually ready.
+The ingestor retries its initial database connection with capped linear backoff. HTTP services
+initialize persistence on a best-effort basis and expose dependency readiness separately from
+liveness. Their HikariCP acquisition and validation deadlines keep a failed dependency from
+blocking indefinitely; pool resources close on application shutdown.
+
+Compose currently uses short-form dependency lists. These order container starts but do not wait
+for database readiness. Some services define health checks, yet those checks are not automatically
+startup gates; an explicit \texttt{service\_healthy} condition would be required for that behavior
+\citep{docker2026startup}. Startup races are therefore an operational limit, mitigated by the
+worker's retry loop and observable through readiness, not eliminated by orchestration.
 
 \subsection{Availability}\label{availability}
 
@@ -604,28 +623,22 @@ cache is shared across every gateway replica, which is what actually makes runni
 replica worthwhile, since otherwise each replica would cache (and warm its cache) independently.
 When Redis is not configured, the gateway falls back to a bounded in-process cache, which is
 correct for a single instance but would silently stop being a \emph{shared} cache across multiple
-replicas, a limitation this project's design is explicit about rather than hiding.
+replicas. Range-history and timestamped-history proxy routes bypass this cache so newly imported
+coverage can be observed without a stale gateway entry. News-service keys have their own
+namespace, preventing collision with gateway response envelopes.
 
 \subsubsection{Load Balancing}\label{availability-load-balancing}
 
 An nginx instance (\texttt{gateway-lb}) fronts however many \texttt{gateway} containers are
-running, forwarding to the \texttt{gateway} service name with DNS re-resolution on every request
-rather than once at startup, so that scaling the number of gateway replicas up or down is
-actually reflected. This is paired with the Redis-backed distributed rate limiter
+running. It uses a variable upstream and Docker's DNS resolver with a short validity period,
+allowing discovery to refresh when the gateway set changes. This is paired with the Redis-backed distributed rate limiter
 (\cref{fault-tolerance}): load balancing across replicas would otherwise multiply the effective
 rate limit by the number of replicas, since Ktor's own built-in rate limiter keeps its counters
 in-process.
 
 \begin{figure}
 \centering
-\IfFileExists{figures/load-balancing.png}{%
-  \includegraphics[width=0.7\textwidth]{figures/load-balancing.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/load-balancing.mmd} (Mermaid source);
-  render it and save the result as \texttt{figures/load-balancing.png}.
-  \vspace{1em}}}%
-}
+\includegraphics[width=0.7\textwidth]{figures/load-balancing.png}
 \caption{Gateway replicas behind \texttt{gateway-lb}, sharing state only via Redis.}
 \label{fig:load-balancing}
 \end{figure}
@@ -646,16 +659,30 @@ systems~\citep{redis2024sentinel}, not a flaw specific to this deployment.
 
 \subsubsection{Current State}\label{security-current}
 
-Orbital currently implements neither authentication nor authorization: every endpoint exposed by
-the gateway (\texttt{/api/v1/market/*}, \texttt{/api/v1/news/*}) is publicly readable, and no
-cryptographic token scheme protects any of them. This is a deliberate simplification given the
-product's current scope, a public, read-only market-data and news aggregator with no user
-accounts and no private data, but it does leave the security dimension of \cref{ds-features}
-largely unaddressed by the implementation as it stands. The remaining subsections of this section
-describe a concrete design for closing that gap; \textbf{none of it has been implemented}: no
-Keycloak container exists in the project's \texttt{docker-compose.yml}, the gateway installs no
-authentication plugin, and \texttt{orbital-app} has no login flow. It is presented as a proposal,
-and listed again as a concrete next step in \cref{future-works}.
+The public HTTP API has no account authentication, JWT validation, or role-based authorization.
+The Keycloak/OIDC design below is a proposal: there is no Keycloak service or client login flow.
+Internal database credentials and infrastructure configuration are still security-sensitive;
+an anonymous product does not make every component or operational datum public.
+
+Implemented hardening includes the following controls:
+\begin{itemize}
+  \item Published development ports bind to loopback. Grafana and pgAdmin require the optional
+  admin profile; database and admin credential placeholders must be replaced before exposure.
+  \item The private nginx ingress overwrites forwarding headers. The gateway trusts this
+  boundary, shares Redis-backed client budgets, and exempts liveness/readiness/metrics probes.
+  \item HTTP requests and connection acquisition have deadlines. Client-visible failures use safe
+  envelopes rather than raw upstream exception details; invalid range/category input is rejected.
+  \item Runtime service images use a non-root UID. Docker context exclusions keep credentials,
+  Git metadata, generated output, and report files out of application images.
+  \item Archive hosts and paths are constrained; downloads and expanded ZIP data are bounded,
+  XML external entities are disabled, checksums are required, and no archive path is extracted.
+  \item Dependency versions receive targeted security upgrades, with weekly Dependabot proposals
+  and a PR dependency-review check. This is not a claim that dependency risks are eliminated.
+\end{itemize}
+
+Redis rate limiting deliberately fails open on backend errors. Public TLS termination, complete
+secret distribution, user identity, and authorization for future private/write APIs remain outside
+the current local development topology.
 
 \subsubsection{Proposed Identity Design (Not Implemented)}\label{security-identity}
 
@@ -682,14 +709,7 @@ new shared state and no new single point of failure introduced by the validation
 
 \begin{figure}
 \centering
-\IfFileExists{figures/keycloak-auth-flow.png}{%
-  \includegraphics[width=0.85\textwidth]{figures/keycloak-auth-flow.png}%
-}{%
-  \fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}
-  \textit{Diagram not yet rendered.} See \texttt{figures/keycloak-auth-flow.mmd} (Mermaid
-  source); render it and save the result as \texttt{figures/keycloak-auth-flow.png}.
-  \vspace{1em}}}%
-}
+\includegraphics[width=0.85\textwidth]{figures/keycloak-auth-flow.png}
 \caption{Proposed OIDC/JWT authentication flow (not implemented).}
 \label{fig:keycloak-auth-flow}
 \end{figure}
@@ -720,50 +740,58 @@ itself in clustered mode across two or more nodes.
 
 \subsection{Network Protocols and Data Representation}\label{impl-network}
 
-Every component communicates over \textbf{HTTP/1.1}, carrying \textbf{JSON} bodies (via
-\texttt{kotlinx.serialization}): client to gateway, gateway to backend services, and backend
-services to CoinGecko. No binary or RPC protocol was introduced anywhere in the system; HTTP/JSON
-was sufficient for the synchronous request/reply pattern identified in \cref{interaction}, and
-keeps every hop debuggable with a plain \texttt{curl}, which mattered in practice during this
-project's own manual verification work (\cref{acceptance-test}).
+
+Client/gateway/service APIs and CoinGecko responses use HTTP/JSON. Success responses carry a
+\texttt{data} envelope; failures use structured status/message envelopes. Historical timestamps
+are normalized to Unix seconds and displayed in UTC. Internal PostgreSQL and Redis traffic uses
+their native client protocols.
+
+Binance imports instead use HTTPS listing XML, checksum text, and compressed ZIP/CSV files.
+The worker verifies and parses those representations before storing typed records. There is no
+external message broker, server-push market stream, or project-specific binary RPC protocol.
 
 \subsection{Data Persistence and Querying}\label{impl-persistence}
 
-Databases are queried with plain \textbf{SQL}, through Exposed's typed query DSL rather than raw
-query strings, which also means no part of this project builds a SQL string by hand from request
-input, closing off SQL injection as an attack surface by construction rather than by discipline.
-Schema is applied automatically at service startup via Exposed's
-\texttt{createMissingTablesAndColumns}, which creates missing tables, columns, and indexes,
-verified empirically in this project to also retroactively add a newly-introduced index to an
-already-existing table (\cref{automatic-testing}): the scenario an already-running deployment
-being upgraded would actually hit.
+Exposed manages tables and transactional repository operations. Historical range selection also
+uses prepared JDBC SQL with \path|ROW_NUMBER| partitioning and time buckets. Table/column names
+come from fixed source choices, while coin IDs and numeric bounds are bound as statement
+parameters. It would therefore be inaccurate to describe every query as Exposed DSL or to base
+SQL-injection protection solely on the ORM.
+
+Schema setup uses \texttt{createMissingTablesAndColumns} for additive tables, columns, and
+indexes. Tests cover adding the coin/time index to an older schema. Compatibility endpoints and
+legacy rows are retained; this is not a general versioned migration or destructive cleanup system.
+New range queries sample full selected windows; legacy history reads keep their latest-500 bound.
 
 \subsection{Authentication and Authorization}\label{impl-auth}
 
-As detailed in \cref{security}, no component is currently authenticated or authorized; there is
-no OAuth/JWT validation and no RBAC/ABAC check anywhere in the running system. A concrete,
+As detailed in \cref{security}, public API callers have no account authentication or
+role-based authorization. Database connections use configured credentials, but the application
+has no OAuth/JWT validation or RBAC/ABAC policy. A concrete,
 unimplemented design for closing this gap (OIDC via Keycloak, JWTs validated at the gateway, role
 claims driving a tiered rate limit) is proposed in \cref{security} and listed again in
 \cref{future-works}.
 
 \subsection{Frontend Implementation}\label{impl-frontend}
 
-\texttt{orbital-app} is built with Compose Multiplatform, sharing one UI codebase across a
-\texttt{commonMain} source set and platform-specific \texttt{desktopMain}/\texttt{wasmJsMain}
-targets. State management uses Compose's own primitives directly (\texttt{remember},
-\texttt{mutableStateOf}, and \texttt{LaunchedEffect}) rather than an external state-management
-library; for instance, a coin row's expanded/collapsed state and its lazily-fetched price history
-are both plain \texttt{remember}ed state, with \texttt{LaunchedEffect(coin.coinId)} triggering
-the history fetch only once a coin is actually expanded, and falling back to the live snapshot's
-short-range \texttt{sparklineIn7d} data if the fetch returns fewer than two points (FR6). An
-injectable \texttt{fetchPriceHistory} function parameter is threaded down through the composable
-tree specifically so the chart-fetching behaviour can be swapped out or omitted (as the
-backend-free demo build does) without changing the UI components themselves. Network access goes
-through a thin \texttt{MarketApiClient} wrapping a Ktor HTTP client, calling the gateway's
-\texttt{/api/v1/market/prices} and \texttt{/api/v1/market/history/\{coinId\}} endpoints directly;
-the client never talks to market-service or news-service itself (\cref{architecture}). Free-text
-coin search and news category filtering (FR5) are both plain client-side list filtering over
-whatever the gateway most recently returned, not separate backend endpoints.
+The common Compose UI is shared by desktop JVM and WebAssembly browser targets. Stable coin keys
+preserve expansion state; refresh mutexes serialize overlapping requests. Previous content remains
+visible after refresh failures, with a stale-data notice and retry action. HTTP clients close when
+their owning composition ends. Search fields are labelled, empty lists are explained, and article
+buttons open HTTPS links. Synthetic news is identified in the UI.
+
+The full \texttt{MarketApiClient} loads \texttt{HistorySeries} through the range endpoint.
+Changing source/range/viewport cancels obsolete work; incomplete imports are polled periodically.
+24H and 7D are fixed durations, 1M uses 30 days, and 1Y uses 365 days. All available spans loaded
+history and requests the remaining daily archive. Both platforms expose zoom buttons; the browser
+also observes pan/wheel changes and desktop supports wheel zoom. Finer requests cannot create
+unpublished provider data or promise resolution unavailable under the public plan.
+
+Browser charts use the bundled Lightweight Charts library. Desktop charts use native Canvas.
+Both preserve real timestamps and split line segments across reported gaps. The old timestamped
+adapter remains available, while the backend-free demo uses explicitly relative seven-day samples
+and does not offer persistent archive controls. Small USD values retain additional decimals;
+values below the supported display precision receive an explicit threshold label.
 
 \subsection{Containerization and Orchestration}\label{impl-containers}
 
@@ -774,21 +802,25 @@ runtime stage using the much smaller \texttt{eclipse-temurin:21-jre}. \texttt{ma
 reuses market-service's own build output via a separate \texttt{Dockerfile.ingestor} that differs
 only in its entrypoint (\texttt{com.orbital.market.MarketIngestorKt} instead of the HTTP server's
 \texttt{main}), rather than duplicating the build. One \texttt{docker-compose.yml} defines the
-entire system: all 17 services described in \cref{infrastructure}, on one bridge network, with
+backend system on one bridge network, with
 environment variables for service URLs, credentials, and feature toggles (such as
-\texttt{REDIS\_SENTINEL\_HOSTS}) injected per service, and health checks enforcing startup
-ordering (\cref{fault-tolerance-retry}). \Cref{deployment} gives the full per-service breakdown.
+\path|REDIS_SENTINEL_HOSTS|) injected per service. Health checks observe service status;
+short-form dependencies do not enforce readiness (\cref{fault-tolerance-retry}). Runtime images
+use UID 10001 and JVM limits use \path|JAVA_TOOL_OPTIONS|; build context exclusions and
+Gradle cache mounts separate source, credentials, and generated artifacts. \Cref{deployment} gives the full per-service breakdown.
 
 \subsection{Technological Details}\label{technological-details}
 
 \begin{itemize}
-  \item \textbf{Kotlin} across the entire codebase.
-  \item \textbf{Ktor}~\citep{ktor2024docs}: every backend HTTP server and client.
+  \item \textbf{Kotlin 2.3.21} for application code; Gradle wrapper 8.14.
+  \item \textbf{Ktor}~\citep{ktor2024docs}: backend 2.3.13 and client 3.5.2 remain separate
+  because WebAssembly support has different requirements. Netty is constrained to 4.1.140.Final.
   \item \textbf{Compose Multiplatform}: the \texttt{orbital-app} client, JVM desktop and
-  \texttt{wasmJs} web from one codebase.
+  \texttt{wasmJs} web from one codebase (Compose 1.12.0, Material3 1.9.0).
   \item \textbf{Exposed} / \textbf{HikariCP} against \textbf{PostgreSQL
   15}~\citep{postgresql2024docs}: all persistence; \textbf{H2} (PostgreSQL-compatibility mode)
-  stands in for it in the automated test suite.
+  supports fast tests, with a separate real-PostgreSQL repository CI job. PostgreSQL JDBC is
+  42.7.14 and Logback is 1.6.6 in the reviewed snapshot.
   \item \textbf{Jedis}, behind an internal abstraction supporting either a plain
   \texttt{JedisPool} or a Sentinel-aware \texttt{JedisSentinelPool}~\citep{redis2024sentinel}.
   \item \textbf{nginx}: \texttt{gateway-lb}'s load balancer.
@@ -807,96 +839,110 @@ ordering (\cref{fault-tolerance-retry}). \Cref{deployment} gives the full per-se
 
 \subsubsection{Test Infrastructure}\label{testing-infrastructure}
 
-Every JVM backend module has its own automated test suite, run with \texttt{./gradlew test} per
-module or \texttt{./gradlew check} for the full suite plus static analysis, executed on every
-push and pull request against \texttt{main}/\texttt{develop} by the \texttt{Test \& Lint} GitHub
-Actions workflow. Persistence code runs against H2 in PostgreSQL-compatibility mode rather than a
-mock of the database, exercising the real Exposed queries and real schema. HTTP-level integration
-uses Ktor's \texttt{testApplication}, which runs the real routing and plugin pipeline (including
-CORS and rate limiting) against an in-process test server, with upstream HTTP dependencies
-replaced by Ktor's \texttt{MockEngine}. Pure logic with no external dependency, such as the
-distributed rate limiter's allow/reject/fail-open decision, is tested against a hand-written fake
-rather than a mocking framework, so the test has no dependency on a real Redis connection ever
-being reachable:
+The full validation command is \texttt{./gradlew check}, covering backend, shared libraries,
+desktop, browser tests, and read-only detekt/formatting checks. Formatting is a separate explicit
+operation. Ktor \texttt{testApplication} and \texttt{MockEngine} isolate HTTP behavior; repository
+tests can use H2 or a disposable PostgreSQL instance. Fake Redis operations cover deterministic
+rate-limit decisions without pretending to validate real quorum timing.
 
-\begin{verbatim}
-private class FakeRedisOps : RedisOps {
-  private val counts = mutableMapOf<String, Long>()
-  override fun incrWithExpire(key: String, windowSeconds: Int): Long =
-      counts.merge(key, 1L, Long::plus) ?: 1L
-}
-\end{verbatim}
+A separate CI job starts PostgreSQL 15 and reruns repository tests with build-cache reuse disabled.
+Each test creates an isolated schema. The client suite includes Compose desktop state/interaction
+checks and common tests also executed in a headless browser. This provides automated client
+coverage; manual screen-reader conformance and an exhaustive native-window walkthrough are not
+claimed.
 
-\subsubsection{Test Coverage}\label{testing-coverage}
+\subsubsection{Recorded Coverage}\label{testing-coverage}
 
-Tests are organized per module (20 for market-service, 14 for gateway, 10 for news-service, plus
-a handful across the two shared library modules) and cover the following requirement-grouped
-scenarios:
+The archived implementation validation recorded the following executions on 13 November 2026.
+Common tests run on multiple targets, so this is an execution count rather than a claim of 83
+unique test methods. This report update does not relabel those results as a fresh run.
 
-\paragraph{Market Data Ingestion and History (FR2, FR7).} Asserts that
-\texttt{getPriceHistory} returns a coin's snapshots oldest-first, excluding other coins'
-snapshots; that \texttt{hasHistory} is false until a snapshot is stored for that coin and true
-afterward (the backfill gate from \cref{modelling-backfill-gate}); and, as a direct empirical
-answer to a question raised during this project's own audit, that
-\texttt{createMissingTablesAndColumns} actually adds the \texttt{(coin\_id, last\_updated)} index
-to a table created \emph{without} it, simulating an already-running deployment being upgraded.
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Module & Executions & Failures \\
+\midrule
+Market service & 35 & 0 \\
+Gateway & 15 & 0 \\
+News service & 10 & 0 \\
+Core library & 1 & 0 \\
+Models library & 2 & 0 \\
+Client: desktop/browser & 20 & 0 \\
+\midrule
+Total & 83 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\paragraph{News Persistence and History (FR3, FR4).} Asserts that \texttt{getHistory} returns
-the most recently published articles first, optionally filtered by category, and that the
-\texttt{/api/v1/news/history} route returns stored articles filtered the same way at the HTTP
-level.
+\paragraph{Market history and integrity (FR2, FR7).} Tests cover ascending legacy history,
+atomic rollback, deterministic deduplication, schema upgrades, and the separation of live
+observations from completion metadata. Archive tests cover millisecond/microsecond conversion,
+closing timestamps/prices, invalid values and paths, checksum failure/success, safe ZIP reading,
+listing pagination, and monthly/daily selection. Range tests cover observations older than the
+former 500-point cap, separate USD/USDT series, untracked/inactive assets, gaps, finer windows,
+invalid bounds, file-ledger idempotency, and delayed-job fairness.
 
-\paragraph{Gateway Caching and Rate Limiting (NFR1, NFR3, NFR4).} Asserts that a repeated
-request for the same market prices within the cache TTL results in exactly one upstream call
-(NFR4); that a cache read failure falls through to the upstream fetch rather than failing the
-request (NFR1); that the distributed rate limiter allows calls up to its configured limit and
-rejects beyond it, tracking separate client keys independently (NFR3); and that it fails open
-when its backing store throws (NFR1, \cref{fault-tolerance-fail-open}), a regression test for a
-real bug found and fixed during this project's own internal audit. A further test asserts that a
-\texttt{429} response from the rate limiter still carries CORS headers, a regression test for an
-ordering bug found during the same audit.
+\paragraph{News and gateway behavior (FR3, FR4, NFR1--NFR5).} Repository tests verify rollback
+and history ordering/filtering; HTTP tests cover response contracts and categories. Gateway tests
+cover short-TTL cache hits, cache failure, client-key isolation, quota exhaustion, fail-open
+behavior, forwarding trust, CORS, and liveness after the public request budget is exhausted.
 
-\paragraph{Persistence Error Handling (NFR1-adjacent corner case).} Asserts that a persistence
-write violating a column constraint is logged and skipped rather than crashing the surrounding
-batch, on both backend services.
+\paragraph{Client interaction (FR5, FR6).} Tests cover search state across visibility changes,
+initial failure versus stale content, sub-cent formatting, history request parameters and coverage
+decoding, source/range/zoom selection, cancellation of obsolete requests, and unavailable Binance
+selection for unlisted assets. Browser fixtures verify range changes, real chart wheel callbacks,
+source switching, segmented gaps, and a 390-pixel mobile layout without horizontal overflow.
+Synthetic fixture screenshots are not evidence of live historical market values.
 
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \subsubsection{How to Run}\label{testing-how-to-run}
 
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
-./gradlew test    # a single module's tests, e.g. ./gradlew :gateway:test
-./gradlew check   # full suite, plus detekt and ktfmt/spotless
+./gradlew check
+./gradlew ktfmtFormat     # explicit source formatting, not validation
+./gradlew --no-build-cache --rerun-tasks \
+  :market-service:test :news-service:test --tests '*RepositoryTest'
 \end{verbatim}
+\end{minipage}\par\medskip
+\end{minipage}\par\medskip
 
-Test reports are available under each module's \texttt{build/reports/tests/} directory.
+The repository run needs \path|TEST_POSTGRES_URL|, \path|TEST_DB_USER|, and
+\path|TEST_DB_PASSWORD| configured for a disposable database. Browser checks need Chromium;
+\path|CHROME_BIN| selects a non-default installation. Reports are written beneath each module's
+\path|build/reports/tests/| directory.
 
-\subsection{Acceptance Testing}\label{acceptance-test}
+\subsection{Runtime and Acceptance Evidence}\label{acceptance-test}
 
-Several properties of this system are either impractical or outright impossible to assert
-deterministically in a fast, isolated automated test, because they depend on real multi-process
-timing and real network behaviour: replication lag, Sentinel quorum formation and failover
-detection, and DNS-based load-balancer discovery. These were instead verified \textbf{manually}
-against the real \texttt{docker-compose} deployment:
+Recorded evidence is retained with the repository in the review documentation and archives:
+\path|docs/review/REMEDIATION.md|, \path|docs/review/HISTORY.md|, and
+\path|docs/review/artifacts/|. Those records distinguish synthetic fixtures, real-provider checks,
+and manual infrastructure scenarios.
 
 \begin{itemize}
-  \item \textbf{PostgreSQL streaming replication} (NFR2): querying
-  \texttt{pg\_stat\_replication} on the \texttt{postgres-market} primary showed an actively
-  streaming replica (\texttt{state: streaming}) with matching sent/write/flush/replay log
-  positions.
-  \item \textbf{Redis Sentinel} (supporting NFR3's shared-cache precondition): a fatal
-  configuration error was found and fixed first (Sentinel refuses to resolve a Docker service name
-  as a monitor target unless \texttt{resolve-hostnames yes} is set), after which
-  \texttt{sentinel master mymaster} against a live Sentinel instance reported the expected
-  master, one discovered replica, and the other two Sentinels forming a three-node quorum.
+  \item \textbf{Database behavior:} uncached real-PostgreSQL tests exercised transactional
+  failure, timestamped history, and schema setup/upgrades. Earlier replication inspection on the
+  market primary observed an actively streaming standby and matching WAL positions at that time.
+  \item \textbf{Redis and gateway failure paths:} recorded checks covered replica promotion,
+  restart of all three Sentinels while preserving the promoted master, health after quota
+  exhaustion, forwarded-identity handling, readiness degradation on database loss, safe upstream
+  errors, and the non-root runtime user. These are bounded scenarios, not a sustained-load SLA.
+  \item \textbf{Real archive import:} Binance BTCUSDT August 2017 data passed SHA-256 validation;
+  all 15 daily candles were stored in an isolated PostgreSQL database. Re-importing did not add
+  duplicate candles. The earliest closing time was 17 August 2017 at 23:59:59 UTC. This verifies
+  one real import path, not every coin/file in the provider archive.
+  \item \textbf{Interactive preview:} the subsequent local app run returned 20 tracked coins and
+  imported Bitcoin coverage back to August 2017. It was stopped without removing database data.
+  \item \textbf{CI and release integration:} the full PR suite, Commitlint, and Dependency Review
+  passed in the recorded remote runs. A separate push job encountered Maven Central HTTP 429
+  during dependency download before tests started; it is an infrastructure failure, not a failed
+  PostgreSQL assertion. One immutable legacy commit receives an exact-SHA leading-space
+  normalization in CI; all other commit messages remain strictly checked.
 \end{itemize}
 
-\paragraph{Rationale for manual testing.} Both scenarios require a live, multi-container
-environment with real inter-process timing (replication catching up, Sentinel's
-down-after-milliseconds detection window) that is impractical to assert deterministically in a
-fast unit or integration test without a full infrastructure-level testing harness. What was
-\emph{not} verified manually, and is reported honestly as outstanding rather than assumed
-working, is discussed in \cref{future-works}: the nginx load balancer's actual round-robin
-behaviour across multiple scaled \texttt{gateway} replicas, and the distributed rate limiter's
-behaviour under real concurrent multi-replica load.
+Sustained multi-replica load, automated PostgreSQL promotion, production TLS/secrets management,
+complete provider coverage, manual accessibility conformance, and native installers remain
+outside the validated scope. No result above implies those outstanding properties.
 
 \section{Deployment}\label{deployment}
 
@@ -905,42 +951,59 @@ behaviour under real concurrent multi-replica load.
 The following software must be installed on the host machine:
 \begin{itemize}
   \item \textbf{Docker} with Docker Compose v2.
-  \item \textbf{JDK 21} (for running the client/backend directly outside Docker; not required if
-  only using \texttt{docker compose}).
+  \item \textbf{JDK 21} for native application/Gradle commands; containers supply their own JDK/JRE.
+  \item \textbf{Chromium/Chrome} for browser tests. Node.js 22 and npm are needed for the
+  repository Commitlint/Husky tooling; the WebAssembly build manages its own JavaScript toolchain.
+  \item A free CoinGecko Demo key for authenticated public-plan historical requests. Binance
+  archive downloads require no API key; provider quotas and dataset terms still apply.
 \end{itemize}
 
 \subsection{Installation from Scratch}\label{deployment-installation}
 
 \begin{enumerate}
   \item \textbf{Clone the repository and configure environment variables:}
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
 git clone <repository-url>
 cd orbital
 cp .env.example .env
 \end{verbatim}
+\end{minipage}\par\medskip
   Every variable in \texttt{.env} has a safe, documented default for local development; only
-  credential-related variables (\texttt{POSTGRES\_MARKET\_PASSWORD},
-  \texttt{POSTGRES\_NEWS\_PASSWORD}, \texttt{POSTGRES\_REPLICATION\_PASSWORD},
-  \texttt{GRAFANA\_ADMIN\_PASSWORD}, \texttt{PGADMIN\_ADMIN\_PASSWORD}) must be overridden before
+  credential-related variables (\path|POSTGRES_MARKET_PASSWORD|,
+  \path|POSTGRES_NEWS_PASSWORD|, \path|POSTGRES_REPLICATION_PASSWORD|,
+  \path|GRAFANA_ADMIN_PASSWORD|, \path|PGADMIN_ADMIN_PASSWORD|) must be overridden before
   any deployment reachable over a real network. These replaced plaintext defaults that
   \texttt{docker-compose.yml} previously hardcoded directly, an issue identified and fixed during
   this project's own security audit.
 
-  \item \textbf{Build and start all services:}
+  Set \path|COINGECKO_DEMO_API_KEY| for public-plan history and retain the default
+  \texttt{INGEST\_INTERVAL\_MS=900000} unless a different collection cadence is intended.
+
+  \item \textbf{Build and start the backend:}
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
 make up        # equivalent to: docker compose up --build -d
 \end{verbatim}
-  On first startup, each Ktor service applies its schema automatically via Exposed
-  (\cref{impl-persistence}) before accepting traffic.
+\end{minipage}\par\medskip
+  Schema setup is additive through Exposed (\cref{impl-persistence}); the ingestor retries until
+  its database is available. Inspect \path|/ready| rather than treating container start or
+  \path|/health| as proof that every dependency is usable. Historical imports fill progressively.
+  Admin consoles are optional: \texttt{docker compose --profile admin up -d}. Published ports
+  bind to \texttt{127.0.0.1}.
 
   \item \textbf{Verify deployment:}
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
 curl localhost:8080/health
+curl localhost:8080/ready
 curl localhost:8080/api/v1/market/prices
 curl localhost:8080/api/v1/news
 \end{verbatim}
-  Expected outcome: a healthy status from the first call, and live CoinGecko-sourced data from
-  the second, within a few seconds.
+\end{minipage}\par\medskip
+  Expected outcome: liveness from the first call, dependency readiness from the second, live
+  CoinGecko prices from the third, and the synthetic crypto feed from the fourth. Dependency or
+  provider failures can return a safe error instead; inspect readiness and logs before proceeding.
 \end{enumerate}
 
 \subsubsection{Docker Compose Services}\label{deployment-services}
@@ -960,8 +1023,8 @@ curl localhost:8080/api/v1/news
   \item \textbf{news-service:} The news REST API, published on port \texttt{8082}. Depends on
   \texttt{postgres-news} and the Redis/Sentinel cluster.
   \item \textbf{postgres-market / postgres-news:} The two independent PostgreSQL 15 primaries,
-  published on ports \texttt{5432}/\texttt{5433}. Health-checked via \texttt{pg\_isready} before
-  dependent services start.
+  published on loopback ports \texttt{5432}/\texttt{5433}. Their \texttt{pg\_isready} health
+  checks do not gate short-form Compose dependencies.
   \item \textbf{postgres-market-replica / postgres-news-replica:} Streaming-replication standbys
   of the two primaries, cloned via \texttt{pg\_basebackup} on first start.
   \item \textbf{redis:} The Redis cache primary, published on port \texttt{6379}.
@@ -969,8 +1032,9 @@ curl localhost:8080/api/v1/news
   \item \textbf{redis-sentinel-1/2/3:} The three-node Sentinel quorum (quorum size 2) monitoring
   \texttt{redis}/\texttt{redis-replica}.
   \item \textbf{prometheus / grafana:} Metrics collection (port \texttt{9090}) and visualization
-  (port \texttt{3000}), with an auto-provisioned ``Orbital Overview'' dashboard.
-  \item \textbf{pgadmin:} A PostgreSQL administration UI (port \texttt{5050}) for both databases.
+  (port \texttt{3000}, admin profile), with a provisioned ``Orbital Overview'' dashboard.
+  \item \textbf{pgadmin:} An optional administration UI (loopback port \texttt{5050}, admin
+  profile) for both databases.
 \end{itemize}
 
 All services share a single Docker bridge network (\texttt{orbital-net}), enabling inter-container
@@ -978,23 +1042,27 @@ communication by service name (\cref{infrastructure}).
 
 \subsubsection{Startup Ordering and Health Checks}\label{deployment-health}
 
-A critical aspect of the deployment is ensuring services start in the correct order. Each service
-that has one declares a \texttt{healthcheck}, and dependent services wait on \texttt{condition:
-service\_healthy} rather than the weaker \texttt{condition: service\_started}
-(\cref{fault-tolerance-retry}): the former waits for the dependency to genuinely be ready to
-accept connections, not merely for its container process to have launched. Without this, a
-service could start, attempt to connect to a database that has not finished initializing, and
-fail. \texttt{market-ingestor} specifically guards against this further with its own
-retry-with-backoff (\cref{fault-tolerance-retry}), since it is not gated by Compose health checks
-for its database dependency being fully migrated, only for PostgreSQL itself accepting
-connections.
+Compose dependency lists start dependencies before their consumers, but the current short-form
+configuration does not wait for \texttt{service\_healthy}. Readiness and the ingestor's retry loop
+are therefore important; startup ordering alone cannot establish availability
+\citep{docker2026startup}. Operators should inspect service logs and readiness after boot.
+
+Redis/Sentinel runtime state is stored in separate writable volumes instead of rewriting checked-in
+configuration. Numeric topology addresses survive ordinary container/Sentinel restarts on the same
+network. If the whole Docker network is recreated, the disposable Redis/Sentinel topology must be
+reinitialized coherently. PostgreSQL volumes must not be included in that cache reset.
+Use \texttt{docker compose stop} to stop without removing containers or data; ordinary
+\texttt{docker compose down} preserves named volumes. The clean target that removes volumes is
+destructive and is not the routine shutdown procedure.
 
 \subsection{Rebuilding Individual Services}\label{deployment-rebuild}
 
 A single service can be rebuilt and restarted without affecting the others:
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
 docker compose up --build gateway
 \end{verbatim}
+\end{minipage}\par\medskip
 
 \subsection{Schema Management}\label{deployment-schema}
 
@@ -1007,36 +1075,56 @@ trade-off made explicit rather than assumed: \cref{automatic-testing} reports an
 that specifically verifies this mechanism retroactively adds a newly-introduced index to an
 already-existing table, since that guarantee cannot simply be assumed of every Exposed version.
 
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \section{User Guide}\label{user-guide}
 
-Two usage modes exist. The first is direct HTTP access, for scripting or inspection:
+The backend can be inspected through HTTP. The following examples keep compatibility reads and
+range-aware reads distinct:
 
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
-curl localhost:8080/api/v1/market/prices              # live market data
-curl localhost:8080/api/v1/market/history/bitcoin      # a coin's ingested price history
-curl localhost:8080/api/v1/news?category=crypto        # news, filtered by category
+curl localhost:8080/api/v1/market/prices
+curl 'localhost:8080/api/v1/market/history-range/bitcoin?range=all'
+curl 'localhost:8080/api/v1/market/history-range/bitcoin' \
+  --get --data 'range=24h' --data 'source=binance'
+curl localhost:8080/api/v1/market/history-points/bitcoin
+curl localhost:8080/api/v1/market/history/bitcoin
+curl 'localhost:8080/api/v1/news?category=crypto'
 \end{verbatim}
+\end{minipage}\par\medskip
+\end{minipage}\par\medskip
 
-The second, and primary intended use, is \texttt{orbital-app}: a search box and list of
-cryptocurrencies with live price/change data; tapping a coin expands it to reveal a price-history
-chart (FR6), built from the backend's own ingested history once enough has accumulated, falling
-back to the live snapshot's short-range data otherwise; a separate tab lists news articles,
-filterable by category; both views auto-refresh periodically without user action. It is started
-with:
-
+The connected client is started after the backend:
+\par\medskip\noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
-./gradlew :orbital-app:run                          # desktop window
-./gradlew :orbital-app:wasmJsBrowserDevelopmentRun   # web, dev server + browser tab
+./gradlew :orbital-app:run
+./gradlew :orbital-app:wasmJsBrowserDevelopmentRun
 \end{verbatim}
+\end{minipage}\par\medskip
 
-A separate, backend-free build of the same client (market data only, fetched directly from
-CoinGecko, no gateway required) is deployed automatically on every release to
-\url{https://loch3f.github.io/orbital/}.
+Expand a coin to select 24H, 7D, 1M, 1Y, or All available. Choose Binance USDT or CoinGecko USD;
+Binance selection is disabled without a verified pair. Use zoom controls, browser pan/wheel, or
+desktop wheel input to request a narrower window. Coverage labels show loaded dates, displayed
+resolution, import progress, and gaps. A loading or empty view is not evidence that the coin has
+no earlier history: work may still be queued or outside the provider's coverage. Keep the ingestor
+running while coverage fills.
 
-\begin{quote}
-\textit{[Screenshots of the desktop and web client, showing the market list, an expanded coin's
-chart, and the news view, would be inserted here.]}
-\end{quote}
+The news tab contains clearly labelled synthetic crypto articles, search/category filters, and
+HTTPS article actions. Unsupported populated categories are not implied by the interface. Both
+views refresh periodically, and a failed refresh can retain stale content with a retry notice.
+
+The release-hosted market-only demo at \url{https://loch3f.github.io/orbital/} calls CoinGecko
+directly. It has no news tab, persistent server-side archive, or full historical range controls.
+Its seven-day sparkline is a relative trend, not the complete exchange history.
+
+\paragraph{CI and release workflow.} Feature work is reviewed into \texttt{develop}; promotion
+into protected \texttt{main} uses a pull request and passing checks. Merge commits preserve shared
+ancestry for these long-running branches. Release Please subsequently proposes version/changelog
+updates. After a release or main-only hotfix, synchronize main back into develop, keeping release
+metadata and security/build changes together when resolving conflicts. Dependabot configuration
+is evaluated on the default branch; its weekly proposals still require review, tests, and merging.
+The Docker update entry currently covers the gateway directory only. This is not a promise that
+all container images are automatically updated.
 
 \section{Self-evaluation}\label{self-evaluation}
 
@@ -1050,44 +1138,34 @@ gateway and both backend services, the market-ingestion worker, the client appli
 infrastructure work described in \cref{fault-tolerance} and \cref{availability}, and both
 automated and manual testing.
 
-\paragraph{Strengths.} The decision to decouple market-data ingestion from API traffic into a
-standalone worker (FR7, \cref{architecture}) directly solved the problem that motivated it: a
-short, API-traffic-dependent price history. Its idempotent backfill gate
-(\cref{modelling-backfill-gate}) also turned out to double as the mechanism that makes the
-worker's crash recovery essentially free, without a separate checkpointing scheme. The fail-open
-design applied to the cache and, after a self-audit caught its absence, to the distributed rate
-limiter as well (\cref{fault-tolerance-fail-open}) proved to be the right default for a system
-whose CAP position is availability over consistency (\cref{cap-theorem-position}): it is a
-materially different, and better, failure mode than the one the rate limiter originally had.
-Verifying claims empirically rather than assuming them held up in practice: the Sentinel
-configuration had a real, fatal bug (\texttt{resolve-hostnames}) that only surfaced once I
-actually brought the quorum up, and the question of whether a schema migration tool would
-retroactively index an already-existing table turned out to be worth a real test rather than an
-assumption (\cref{automatic-testing}); in both cases, checking rather than assuming caught
-something that would otherwise have been a quiet, production-only surprise. Finally, keeping the
-backend split into independently buildable, CI-enforced Gradle modules from the start made it
-possible to add substantial new infrastructure (replication, Sentinel, a distributed rate
-limiter) across several iterations without destabilizing what already worked.
+\paragraph{Strengths.} Separating collection from API traffic removes a major source of
+inconsistent history growth. Durable import jobs and a checksum ledger make progress visible and
+recoverable without treating a single live price as complete backfill. Source-labelled USD/USDT
+series preserve provider differences instead of hiding them in one chart. Atomic rollback,
+deterministic identities, and tests against PostgreSQL strengthen the meaning of persisted data.
 
-\paragraph{Weaknesses and Limitations.} Working alone meant no second reviewer catching design
-blind spots as they happened; the internal audit process I ran against my own work, which is what
-actually found the rate limiter's fail-closed bug and the hardcoded database credentials, was a
-partial substitute for that, but it is not equivalent to an independent reviewer, and I can't rule
-out that it missed things a second person would have caught. More concretely, several gaps are
-already honestly documented rather than glossed over: \texttt{orbital-app}, the one component
-real users actually touch, has no automated tests at all, unlike every backend module; the
-distributed rate limiter and load balancer were built specifically to make horizontal scaling
-safe but were never exercised against real concurrent multi-replica load, only against their own
-unit tests and a single-instance manual check; there is no authentication or authorization layer,
-only a proposed, unimplemented design (\cref{security}); and PostgreSQL failover is manual in
-practice, since nothing promotes a standby automatically. \Cref{future-works} lists these and a
-few other concrete next steps in more detail.
+The hardening work also made operational behavior explicit: forwarding trust, probe exemptions,
+readiness, safe errors, resource deadlines, pool cleanup, non-root images, and bounded archive
+parsing each address a concrete failure or abuse path. Recorded runtime checks complement unit
+and UI tests without being presented as a universal production guarantee. Keeping domain modules
+and client adapters separate supported these changes without introducing a message broker or a
+second client codebase.
+
+\paragraph{Weaknesses and Limitations.} This remains a single-author academic project with an
+internal, assisted review rather than an independent security assessment. Realistic sustained
+multi-replica load, complete archive coverage for every tracked coin, and manual accessibility
+validation remain open. The single-worker queue lacks distributed leasing; asynchronous replicas
+can lag; PostgreSQL promotion is manual; provider quotas can interrupt collection. Public API
+reads remain anonymous and the production TLS/secrets/distribution story is incomplete.
+The public demo deliberately exposes less functionality than the connected application.
+These boundaries are part of the evaluation rather than completed requirements disguised as
+future work.
 
 \section{Future works}\label{future-works}
 
 \paragraph{Automatic database failover.} Both PostgreSQL standbys (\cref{fault-tolerance}) give
-Orbital a readable, up-to-date copy of each database, but nothing promotes a standby to primary
-or repoints a backend service's \texttt{DB\_URL} automatically if a primary fails. That is
+Orbital a replica of each database, subject to replication lag, but nothing promotes a standby to primary
+or repoints a backend service's \path|DB_URL| automatically if a primary fails. That is
 normally the job of a dedicated tool such as Patroni or repmgr, deliberately left out of this
 project as a separate, larger piece of work rather than attempted partially.
 
@@ -1099,17 +1177,18 @@ been exercised against several \emph{scaled} replicas under concurrent load, e.g
 rate limit really is enforced once, globally, rather than once per replica. This is the natural
 next step beyond the manual verification already performed (\cref{acceptance-test}).
 
-\paragraph{Synchronous replication.} \Cref{cap-theorem-position} discusses the AP position taken
-for both PostgreSQL pairs; a future iteration could make replication mode configurable per
-deployment, trading write latency for a zero-data-loss guarantee on failover where that trade is
-justified.
+\paragraph{Synchronous replication.} \Cref{cap-theorem-position} discusses the asynchronous replication trade-off.
+A future iteration could make replication mode configurable, accepting additional write latency
+and reduced write availability when a required standby is unreachable. Durability would still
+depend on the acknowledgement policy and promoting a sufficiently synchronized standby.
 
-\paragraph{Automated testing of \texttt{orbital-app}.} Every backend module has an automated test
-suite (\cref{automatic-testing}); the client application currently has none. This is a real gap
-specifically because the client is the one component actual users interact with directly.
+\paragraph{Broader client and import validation.} Desktop, common, and browser tests now exist
+(\cref{automatic-testing}). Further work should add manual screen-reader testing, native-window
+walkthroughs, larger provider fixtures, longer import interruption scenarios, and sustained
+concurrent multi-replica load. Existing automated checks do not replace those evaluations.
 
-\paragraph{Real news integration.} News-service currently serves a mocked fallback feed rather
-than a paid NewsAPI subscription (\cref{ds-features}'s economy discussion); wiring up the real
+\paragraph{Real news integration.} News-service currently serves a synthetic feed without
+external requests rather than using a configured NewsAPI subscription (\cref{ds-features}'s economy discussion); wiring up the real
 integration behind the same interface it already exposes (\texttt{NewsApiClient}) would be a
 contained change once the cost trade-off is revisited.
 
