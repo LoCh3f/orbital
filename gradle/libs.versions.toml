@@ -7,11 +7,11 @@ dokka = "1.9.20"
 shadow = "8.1.1"
 
 # Backend services (gateway/market-service/news-service/libs:core)
-ktor = "2.3.13"
+ktor = "3.6.1"
 
 # orbital-app only — deliberately newer, required for wasmJs client support (see orbital-app/build.gradle.kts).
 # Do not unify with the backend's `ktor` version.
-ktorClient = "3.5.2"
+ktorClient = "3.6.1"
 composeMultiplatform = "1.12.2"
 # Material3 is versioned independently from the composeMultiplatform umbrella version above
 # (its latest stable release lags behind — 1.9.0 here vs 1.12.0 for runtime/foundation/ui).
