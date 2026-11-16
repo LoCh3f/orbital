@@ -1,4 +1,18 @@
-\begin{thebibliography}{1}
+\begin{thebibliography}{10}
+
+\bibitem{binance2026data}
+{Binance}.
+\newblock {Binance Public Data: Spot Klines, Archives and Checksums}.
+\newblock \url{https://github.com/binance/binance-public-data}, 2026.
+\newblock Accessed: 2026-11-16.
+
+\bibitem{binance2026terms}
+{Binance}.
+\newblock {Binance Public Data Terms and Conditions}.
+\newblock
+  \url{https://github.com/binance/binance-public-data/blob/master/TERMS_AND_CONDITIONS.md},
+  2026.
+\newblock Creative Commons BY-NC-SA 4.0; accessed: 2026-11-16.
 
 \bibitem{brewer2000towards}
 Eric~A. Brewer.
@@ -12,11 +26,25 @@ Eric~A. Brewer.
 \newblock \url{https://www.coingecko.com/en/api/documentation}, 2024.
 \newblock Accessed: 2026.
 
+\bibitem{coingecko2026history}
+{CoinGecko}.
+\newblock {Demo API: Coin Historical Chart Data by ID}.
+\newblock
+  \url{https://docs.coingecko.com/demo/reference/coins-id-market-chart}, 2026.
+\newblock Public-plan history limits and automatic granularity; accessed:
+  2026-11-16.
+
 \bibitem{docker2024compose}
 {Docker, Inc.}
 \newblock {Docker Compose Documentation}.
 \newblock \url{https://docs.docker.com/compose/}, 2024.
 \newblock Accessed: 2026.
+
+\bibitem{docker2026startup}
+{Docker, Inc.}
+\newblock {Control Startup and Shutdown Order in Compose}.
+\newblock \url{https://docs.docker.com/compose/how-tos/startup-order/}, 2026.
+\newblock Accessed: 2026-11-16.
 
 \bibitem{gilbert2002brewer}
 Seth Gilbert and Nancy Lynch.
