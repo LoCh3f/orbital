@@ -833,6 +833,30 @@ Gradle cache mounts separate source, credentials, and generated artifacts. \Cref
   Docker image builds, and versioned releases from Conventional Commit history.
 \end{itemize}
 
+\subsection{Monitoring}\label{impl-monitoring}
+
+\Cref{fig:prometheus-targets,fig:grafana-overview} show the monitoring interfaces:
+the targets are reported as up, while Grafana's request-rate and latency panels display
+``No data'' in this capture.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{figures/Prometheus.png}
+\caption{Prometheus target-health view showing the gateway, market-service, news-service,
+and Prometheus scrape targets as up at capture time.}
+\label{fig:prometheus-targets}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{figures/Grafana.png}
+\caption{Grafana's Orbital Overview dashboard with service-up indicators, JVM heap and CPU
+plots, and request-rate and latency panels displaying no data in the captured window.}
+\label{fig:grafana-overview}
+\end{figure}
+
+\clearpage
+
 \section{Validation}\label{validation}
 
 \subsection{Automatic Testing}\label{automatic-testing}
@@ -1125,6 +1149,39 @@ metadata and security/build changes together when resolving conflicts. Dependabo
 is evaluated on the default branch; its weekly proposals still require review, tests, and merging.
 The Docker update entry currently covers the gateway directory only. This is not a promise that
 all container images are automatically updated.
+
+\subsection{Application Screenshots}\label{user-guide-screenshots}
+
+The following screenshots illustrate the market and news interfaces.
+\Cref{fig:market-overview} shows the market list, while \cref{fig:market-history}
+shows an expanded Bitcoin chart with source selection, loaded coverage, and import status.
+The coverage dates describe the state at capture time.
+\Cref{fig:news-screen} shows the explicitly labelled synthetic news feed.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{figures/CryptoMarket-1.png}
+\caption{Desktop market overview with coin search, current prices, percentage changes,
+market capitalization, and sparklines.}
+\label{fig:market-overview}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{figures/CryptoMarket.png}
+\caption{Expanded Bitcoin history with Binance USDT selected, range and zoom controls,
+loaded coverage dates, and an ongoing archive-import notice.}
+\label{fig:market-history}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{figures/NewsScreenShot.png}
+\caption{News view with category filters, search, article actions, and the synthetic-feed label.}
+\label{fig:news-screen}
+\end{figure}
+
+\clearpage
 
 \section{Self-evaluation}\label{self-evaluation}
 
