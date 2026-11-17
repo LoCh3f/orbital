@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk as builder
+FROM eclipse-temurin:24-jdk as builder
 
 WORKDIR /application
 COPY build.gradle.kts settings.gradle.kts gradle.properties gradlew ./
@@ -11,7 +11,7 @@ COPY orbital-app/build.gradle.kts ./orbital-app/build.gradle.kts
 RUN chmod +x ./gradlew
 RUN --mount=type=cache,target=/root/.gradle,sharing=locked ./gradlew :gateway:shadowJar -x test
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:24-jre
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /application/gateway/build/libs/app.jar app.jar
