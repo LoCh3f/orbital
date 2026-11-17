@@ -23,14 +23,14 @@ jobs:
         distribution: 'temurin'
 
     - name: Set up Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v6
 
     - name: Test & lint
       run: ./gradlew check
 
     - name: Upload test & lint reports
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-reports
         path: |
@@ -60,5 +60,5 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew --no-build-cache --rerun-tasks :market-service:test :news-service:test --tests '*RepositoryTest'
