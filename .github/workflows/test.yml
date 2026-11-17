@@ -23,7 +23,7 @@ jobs:
         distribution: 'temurin'
 
     - name: Set up Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v6
 
     - name: Test & lint
       run: ./gradlew check
@@ -60,5 +60,5 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew --no-build-cache --rerun-tasks :market-service:test :news-service:test --tests '*RepositoryTest'
