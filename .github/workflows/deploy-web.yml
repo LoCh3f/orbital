@@ -37,7 +37,7 @@ jobs:
           cp -r orbital-app/build/dist/wasmJs/productionExecutable/. site/
           cp -r build/dokka/htmlMultiModule/. site/docs/
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
