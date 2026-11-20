@@ -2,7 +2,7 @@
 kotlin = "2.3.21"
 ktfmt = "0.17.0"
 detekt = "1.23.4"
-spotless = "6.25.0"
+spotless = "8.11.0"
 dokka = "1.9.20"
 shadow = "8.1.1"
 
